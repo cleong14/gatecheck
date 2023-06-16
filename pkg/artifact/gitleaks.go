@@ -1,8 +1,11 @@
 package artifact
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
+
 	gcStrings "github.com/gatecheckdev/gatecheck/pkg/strings"
 	"github.com/zricethezav/gitleaks/v8/report"
 )
@@ -22,8 +25,42 @@ func (r GitleaksScanReport) String() string {
 	return table.String()
 }
 
+func NewGitleaksReportDecoder() *gitleaksReportDecoder {
+	return new(gitleaksReportDecoder)
+}
+
+// Gitleaks reports are just an array of findings. No findings is '[]' literally
+type gitleaksReportDecoder struct {
+	bytes.Buffer
+}
+
+func (d *gitleaksReportDecoder) Decode() (any, error) {
+	if d == nil {
+		return nil, fmt.Errorf("%w: %v", ErrDecoders, "decoder buffer is nil")
+	}
+
+	// Edge Case: report with no findings
+	if d.String() == "[]" {
+		return &GitleaksScanReport{}, nil
+	}
+
+	obj := GitleaksScanReport{}
+	err := json.NewDecoder(d).Decode(&obj)
+
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrEncoding, err)
+	}
+
+	if obj[0].RuleID == "" {
+		return nil, fmt.Errorf("%w: rule id is missing", ErrFailedCheck)
+	}
+
+	return &obj, nil
+}
+
 type GitleaksConfig struct {
-	SecretsAllowed bool `yaml:"SecretsAllowed" json:"secretsAllowed"`
+	Required       bool `yaml:"required" json:"required"`
+	SecretsAllowed bool `yaml:"secretsAllowed" json:"secretsAllowed"`
 }
 
 func ValidateGitleaks(config GitleaksConfig, scanReport GitleaksScanReport) error {

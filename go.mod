@@ -3,7 +3,7 @@ module github.com/gatecheckdev/gatecheck
 go 1.20
 
 require (
-	github.com/BacchusJackson/go-semgrep v1.2.1
+	github.com/BacchusJackson/go-semgrep v1.9.0
 	github.com/CycloneDX/cyclonedx-go v0.7.1
 	github.com/anchore/grype v0.61.1
 	github.com/aws/aws-sdk-go-v2 v1.18.0

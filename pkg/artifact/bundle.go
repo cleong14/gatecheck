@@ -4,105 +4,78 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/gob"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"strings"
 
 	"github.com/dustin/go-humanize"
-	"github.com/gatecheckdev/gatecheck/internal/log"
-	gcStrings "github.com/gatecheckdev/gatecheck/pkg/strings"
+	gs "github.com/gatecheckdev/gatecheck/pkg/strings"
 )
 
-var ErrNotExist = errors.New("Artifact does not exist")
-
 type Bundle struct {
-	CyclonedxSbom Artifact
-	GrypeScan     Artifact
-	SemgrepScan   Artifact
-	GitleaksScan  Artifact
-	Generic       map[string]Artifact
-	PipelineID    string
-	PipelineURL   string
-	ProjectName   string
+	Version   string
+	Artifacts map[string]Artifact
+	config    *Config
 }
 
-func NewBundle() *Bundle {
-	return &Bundle{Generic: map[string]Artifact{}}
-}
+func NewBundle(artifacts ...Artifact) *Bundle {
+	bundle := &Bundle{
+		Version:   "1",
+		Artifacts: make(map[string]Artifact),
+	}
 
-func (b *Bundle) Add(artifacts ...Artifact) error {
-	for _, v := range artifacts {
-		if err := b.add(v); err != nil {
-			return err
+	configLabel := ""
+	for _, a := range artifacts {
+		bundle.Artifacts[a.Label] = a
+		if a.Type == TypeGatecheckConfig {
+			configLabel = a.Label
 		}
 	}
-	return nil
+
+	if configLabel == "" {
+		return bundle
+	}
+
+	writer := new(ConfigWriter)
+	writer.ReadFrom(bytes.NewReader(bundle.Artifacts[configLabel].Content))
+
+	// Can't error if NewArtifact was init'd correctly
+	c, _ := writer.Decode()
+	bundle.config = c.(*Config)
+
+	return bundle
 }
 
-func (b *Bundle) add(artifact Artifact) error {
-	if strings.Trim(artifact.Label, " ") == "" {
-		return errors.New("artifact is missing a label")
-	}
-	// Directly taking bytes, no possibility of error
-	rType, _ := Inspect(bytes.NewBuffer(artifact.ContentBytes()))
-
-	// No need to check decode errors since it's decoded in the DetectReportType Function
-	switch rType {
-	case Semgrep:
-		b.SemgrepScan = artifact
-	case Cyclonedx:
-		b.CyclonedxSbom = artifact
-	case Grype:
-		b.GrypeScan = artifact
-	case Gitleaks:
-		b.GitleaksScan = artifact
-	case Unsupported:
-		b.Generic[artifact.Label] = artifact
-	}
-
-	return nil
+func (b *Bundle) SetConfig(c *Config) {
+	b.config = c
 }
 
-func (b *Bundle) Write(w io.Writer, key string) (written int64, err error){
-	fileMap := map[string]*Artifact{
-		"cyclonedx": &b.CyclonedxSbom,
-		"grype": &b.GrypeScan,
-		"semgrep": &b.SemgrepScan,
-		"gitleaks": &b.GitleaksScan,
+func (b *Bundle) isRequired(a Artifact) string {
+	if b.config == nil {
+		return ""
 	}
 
-	for k := range b.Generic {
-		genericArtifact := b.Generic[k]
-		fileMap[strings.ToLower(k)] = &genericArtifact
+	for _, typeID := range b.config.Required() {
+		if a.Type == typeID {
+			return "Y"
+		}
 	}
 
-	artifact, ok := fileMap[strings.ToLower(key)]
-
-	if !ok {
-		return 0, ErrNotExist
-	}
-
-	return io.Copy(w, bytes.NewBuffer(artifact.Content))
+	return ""
 }
 
 func (b *Bundle) String() string {
-	table := new(gcStrings.Table).WithHeader("Type", "Label", "Digest", "Size")
-
-	items := []Artifact{b.CyclonedxSbom, b.GrypeScan, b.SemgrepScan, b.GitleaksScan}
-	types := []string{"CycloneDX", "Grype", "Semgrep", "Gitleaks"}
-	for _, v := range b.Generic {
-		items = append(items, v)
-		types = append(types, "Generic File")
-	}
+	table := new(gs.Table).WithHeader("Type", "Label", "Digest", "Size", "Required")
 
 	totalSize := uint64(0)
-	for i, v := range items {
+	for _, v := range b.Artifacts {
+
 		totalSize += uint64(len(v.ContentBytes()))
-		table = table.WithRow(types[i], v.Label, v.DigestString(), humanize.Bytes(uint64(len(v.ContentBytes()))))
+		prettySize := humanize.Bytes(uint64(len(v.ContentBytes())))
+		table = table.WithRow(string(v.Type), v.Label, v.DigestString(), prettySize, b.isRequired(v))
 	}
+
 	horizontalLength := len(strings.Split(table.String(), "\n")[0])
+
 	var sb strings.Builder
 	sb.WriteString(table.String() + "\n")
 
@@ -112,133 +85,72 @@ func (b *Bundle) String() string {
 	return sb.String()
 }
 
-func (b *Bundle) ValidateCyclonedx(config *CyclonedxConfig) error {
-	var cyclonedxSbom CyclonedxSbomReport
-	// No config
-	if config == nil {
-		return nil
-	}
-	// No scan in bundle to validate
-	if len(b.CyclonedxSbom.Content) == 0 {
-		log.Info("No cyclonedx content... skipping validation")
-		return nil
-	}
-
-	// Problem parsing the artifact
-	if err := json.Unmarshal(b.CyclonedxSbom.ContentBytes(), &cyclonedxSbom); err != nil {
-		log.Info("Validating CycloneDX Schema")
-		return fmt.Errorf("%w: %v", ErrCyclonedxValidationFailed, err)
-	}
-
-	log.Info("Validating CycloneDX Findings")
-	return ValidateCyclonedx(*config, cyclonedxSbom)
+type BundleReader struct {
+	bytes.Buffer
 }
 
-func (b *Bundle) ValidateGrype(config *GrypeConfig) error {
-	var grypeScan GrypeScanReport
-	// No config
-	if config == nil {
-		return nil
-	}
-	// No scan in bundle to validate
-	if len(b.GrypeScan.Content) == 0 {
-		log.Info("No grype content... skipping validation")
-		return nil
-	}
+func NewBundleReader(bundle *Bundle) (*BundleReader, error) {
+	bundleReader := new(BundleReader)
 
-	// Problem parsing the artifact
-	if err := json.Unmarshal(b.GrypeScan.ContentBytes(), &grypeScan); err != nil {
-		return fmt.Errorf("%w: %v", GrypeValidationFailed, err)
-	}
-
-	return ValidateGrype(*config, grypeScan)
-}
-
-func (b *Bundle) ValidateSemgrep(config *SemgrepConfig) error {
-	var semgrepScan SemgrepScanReport
-	// No config
-	if config == nil {
-		return nil
-	}
-	// No scan in bundle to validate
-	if len(b.SemgrepScan.ContentBytes()) == 0 {
-		log.Info("No semgrep content... skipping validation")
-		return nil
-	}
-
-	// Problem parsing the artifact
-	if err := json.Unmarshal(b.SemgrepScan.ContentBytes(), &semgrepScan); err != nil {
-		return fmt.Errorf("%w: %v", SemgrepFailedValidation, err)
-	}
-
-	return ValidateSemgrep(*config, semgrepScan)
-}
-
-func (b *Bundle) ValidateGitleaks(config *GitleaksConfig) error {
-	var gitleaksScan GitleaksScanReport
-	// No config
-	if config == nil {
-		return nil
-	}
-	// No scan in bundle to validate
-	if len(b.GitleaksScan.ContentBytes()) == 0 {
-		log.Info("No gitleaks content... skipping validation")
-		return nil
-	}
-
-	// Problem parsing the artifact
-	if err := json.Unmarshal(b.GitleaksScan.ContentBytes(), &gitleaksScan); err != nil {
-		return fmt.Errorf("%w: %v", GitleaksValidationFailed, err)
-	}
-
-	return ValidateGitleaks(*config, gitleaksScan)
-}
-
-type Encoder struct {
-	w io.Writer
-}
-
-func (e Encoder) Encode(bundle *Bundle) error {
-	// TODO: Add encryption
 	buf := new(bytes.Buffer)
-	if bundle == nil {
-		return errors.New("no bundle to encode")
-	}
-	_ = gob.NewEncoder(buf).Encode(bundle)
-
-	zw := gzip.NewWriter(e.w)
-
-	if _, err := io.Copy(zw, buf); err != nil {
-		return err
+	if err := gob.NewEncoder(buf).Encode(bundle); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrEncoding, err)
 	}
 
-	_ = zw.Close()
-	return nil
+	gzipWriter := gzip.NewWriter(bundleReader)
+	buf.WriteTo(gzipWriter)
+
+	gzipWriter.Close()
+
+	return bundleReader, nil
 }
 
-func NewBundleEncoder(w io.Writer) *Encoder {
-	return &Encoder{w: w}
+type BundleWriter struct {
+	bytes.Buffer
 }
 
-type BundleDecoder struct {
-	r io.Reader
-}
+func (w *BundleWriter) Decode() (any, error) {
 
-func (d BundleDecoder) Decode(bundle *Bundle) error {
-	// TODO: Add decryption
+	buf := new(bytes.Buffer)
 
-	zr, err := gzip.NewReader(d.r)
+	gzipReader, err := gzip.NewReader(w)
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("%w: %v", ErrEncoding, err)
 	}
+	_, _ = buf.ReadFrom(gzipReader)
 
-	buf := new(bytes.Buffer)
-	// Errors captured during gzip.NewReader or during decoding
-	_, _ = io.Copy(buf, zr)
+	bundle := new(Bundle)
 
-	return gob.NewDecoder(buf).Decode(bundle)
+	if err := gob.NewDecoder(buf).Decode(bundle); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrEncoding, err)
+	}
+	return bundle, nil
 }
 
-func NewBundleDecoder(r io.Reader) *BundleDecoder {
-	return &BundleDecoder{r: r}
+func ExampleBundle() {
+	// Creating a bundle
+	artifact1, _ := NewArtifact("somefile.txt", strings.NewReader("some content"))
+	bundle := NewBundle(artifact1)
+
+	// Using the bundle reader
+	reader, err := NewBundleReader(bundle)
+	if err != nil {
+		panic(err)
+	}
+
+	buffer := new(bytes.Buffer)
+	buffer.ReadFrom(reader)
+
+	// Using the Bundle writer/decoder
+	writerDecoder := new(BundleWriter)
+	_, _ = buffer.WriteTo(writerDecoder)
+
+	decodedObj, err := writerDecoder.Decode()
+
+	decodedbundle := decodedObj.(*Bundle)
+
+	fmt.Println(decodedbundle.Version)
+
+	// Output: 1
+
 }

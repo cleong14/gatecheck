@@ -73,7 +73,7 @@ func NewExportCmd(
 
 			if fullBom {
 				buf := bytes.NewBuffer(fileBytes)
-				c := artifact.DecodeJSON[artifact.CyclonedxSbomReport](buf)
+				c := artifact.DecodeJSONOld[artifact.CyclonedxSbomReport](buf)
 				fileBytes, _ = json.Marshal(c.ShimComponentsAsVulnerabilities())
 			}
 

@@ -2,8 +2,10 @@ package artifact
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -11,6 +13,53 @@ import (
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/anchore/grype/grype/presenter/models"
 )
+
+func TestNewArtifact2(t *testing.T) {
+	grypeArtifact, _ := NewArtifact("grype-report.json", bytes.NewReader(MustReadFile("../../test/grype-report.json", t.Fatal)))
+	semgrepArtifact, _ := NewArtifact("semgrep-report.json", bytes.NewReader(MustReadFile("../../test/semgrep-sast-report.json", t.Fatal)))
+	bundle := NewBundle(grypeArtifact, semgrepArtifact)
+	reader, _ := NewBundleReader(bundle)
+	bundleBytes := reader.Bytes()
+
+	testTable := []struct {
+		label      string
+		inputBytes []byte
+		wantErr    error
+		wantType   TypeID
+	}{
+		{label: "config-success", inputBytes: MustReadFile("../../test/gatecheck.yaml", t.Fatal), wantErr: nil, wantType: TypeGatecheckConfig},
+		{label: "grype-report-success", inputBytes: MustReadFile("../../test/grype-report.json", t.Fatal), wantErr: nil, wantType: TypeGrypeScanReport},
+		{label: "semgrep-report-success", inputBytes: MustReadFile("../../test/semgrep-sast-report.json", t.Fatal), wantErr: nil, wantType: TypeSemgrepScanReport},
+		{label: "gitleaks-report-success", inputBytes: MustReadFile("../../test/gitleaks-report.json", t.Fatal), wantErr: nil, wantType: TypeGitleaksScanReport},
+		{label: "cycloned-report-success", inputBytes: MustReadFile("../../test/cyclonedx-syft-sbom.json", t.Fatal), wantErr: nil, wantType: TypeCyclonedxSBOMReport},
+		{label: "bundle-success", inputBytes: bundleBytes, wantErr: nil, wantType: TypeGatecheckBundle},
+	}
+
+	for i, testCase := range testTable {
+		t.Run(fmt.Sprintf("test-%d-%s", i, testCase.label), func(t *testing.T) {
+			art, err := NewArtifact("some-file", bytes.NewReader(testCase.inputBytes))
+			if err != testCase.wantErr {
+				t.Fatalf("want %v, got %v", testCase.wantErr, err)
+			}
+			t.Log(art)
+			if art.Type != testCase.wantType {
+				decoder := new(AsyncDecoder).WithDecoders(StandardDecoders()...)
+				decoder.ReadFrom(bytes.NewReader(art.ContentBytes()))
+				obj, err := decoder.Decode(context.Background())
+				t.Fatalf("want %v, got %v type -> %T decode error: %v", testCase.wantType, art.Type, obj, err)
+			}
+		})
+	}
+
+}
+
+func TestWorkspace(t *testing.T) {
+	configArtifact, err := NewArtifact("config file", bytes.NewReader(MustReadFile("../../test/gatecheck.yaml", t.Fatal)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Log(configArtifact)
+}
 
 func TestValidateGitleaks(t *testing.T) {
 	gitleaksFile := MustReadFile("../../test/gitleaks-report.json", t.Fatal)
@@ -97,10 +146,10 @@ func TestValidateGrype(t *testing.T) {
 func TestValidateSemgrep(t *testing.T) {
 
 	semgrepScan := SemgrepScanReport{Results: []go_semgrep.CliMatch{
-		{Extra: go_semgrep.CliMatchExtra_1{Severity: "WARNING"}},
-		{Extra: go_semgrep.CliMatchExtra_1{Severity: "WARNING"}},
-		{Extra: go_semgrep.CliMatchExtra_1{Severity: "WARNING"}},
-		{Extra: go_semgrep.CliMatchExtra_1{Severity: "ERROR",
+		{Extra: go_semgrep.CliMatchExtra{Severity: "WARNING"}},
+		{Extra: go_semgrep.CliMatchExtra{Severity: "WARNING"}},
+		{Extra: go_semgrep.CliMatchExtra{Severity: "WARNING"}},
+		{Extra: go_semgrep.CliMatchExtra{Severity: "ERROR",
 			Metadata: map[string]interface{}{"shortlink": "gatecheck.dev/1"}}},
 	}}
 

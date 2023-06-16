@@ -4,219 +4,98 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"sync"
-
-	"gopkg.in/yaml.v3"
 )
 
-type Type string
+// checkFunc is a function that does soft validation to check if a file is formatted correctly
+type checkFunc func(v any) error
 
-const (
-	Gitleaks        Type = "Gitleaks"
-	Cyclonedx       Type = "Cyclonedx"
-	Grype           Type = "Grype"
-	Semgrep         Type = "Semgrep"
-	GatecheckBundle Type = "Gatecheck Bundle"
-	GatecheckConfig Type = "Gatecheck Config"
-	Unsupported     Type = "Unsupported"
-)
+var ErrEncoding = errors.New("Encoding error")
+var ErrDecoders = errors.New("Invalid Decoders")
+var ErrInvalidType = errors.New("Invalid Type")
+var ErrNilObject = errors.New("Object is nil")
+var ErrFailedCheck = errors.New("Invalid file format")
 
-// Inspect will attempt to decode into all report types and return the one that worked.
-// Warning: this function is prone to hanging if a bad reader is supplied, use InspectWithContext unless
-// reader can be guaranteed not to hang. Very small performance bump over InspectWithContext
-func Inspect(r io.Reader) (Type, error) {
-	// Errors caught in detectBytes
-	inputBytes, _ := io.ReadAll(r)
-	return detectBytes(inputBytes)
+type AsyncDecoder struct {
+	bytes.Buffer
+	decoders []WriterDecoder
 }
 
-// InspectWithContext calls Inspect with the ability to cancel which prevents hanging when running go routines
-func InspectWithContext(ctx context.Context, r io.Reader) (Type, error) {
-	// based on benchmarking, the async solution is twice as fast when there are at least 3 decoder functions
-	var reportType Type
-	var err error
-	c := make(chan struct{}, 1)
+func (d *AsyncDecoder) WithDecoders(decs ...WriterDecoder) *AsyncDecoder {
+	d.decoders = decs
+	return d
+}
 
-	go func() {
-		// Errors caught in detectBytes
-		inputBytes, _ := io.ReadAll(r)
-		reportType, err = detectBytes(inputBytes)
-		c <- struct{}{}
-	}()
-
-	select {
-	case <-c: // function ran successfully
-		return reportType, err
-	case <-ctx.Done(): // Context was canceled before go routine could finish
-		return Unsupported, context.Canceled
+func (d *AsyncDecoder) Decode(ctx context.Context) (any, error) {
+	if len(d.decoders) == 0 {
+		return nil, fmt.Errorf("%w: no decoders provided", ErrDecoders)
 	}
-}
 
-// Read bytes from a reader and inspect the report type. Use ReadWithContext for the option to timeout
-func Read(r io.Reader) (Type, []byte, error) {
-	data, err := io.ReadAll(r)
-	if err != nil {
-		return Unsupported, data, err
-	}
-	rType, err := detectBytes(data)
-	return rType, data, err
-}
-
-// ReadWithContext same as Read but enables the ability to cancel early via Context to prevent hanging
-func ReadWithContext(ctx context.Context, r io.Reader) (Type, []byte, error) {
-	var target []byte
-	var err error
-	var entityType = Unsupported
-
-	c := make(chan struct{}, 1)
-
-	go func() {
-		target, err = io.ReadAll(r)
-		if err != nil {
-			c <- struct{}{}
-			return
-		}
-		entityType, err = detectBytes(target)
-		c <- struct{}{}
-	}()
-
-	select {
-	case <-c: // goroutine is done
-		return entityType, target, err
-	case <-ctx.Done(): // Context was canceled before go routine could finish
-		return Unsupported, nil, context.Canceled
-	}
-}
-
-// DecodeJSON if the type is known and decode error is unexpected. Intended to be paired with Inspect
-func DecodeJSON[T any](r io.Reader) T {
-	v := new(T)
-	_ = json.NewDecoder(r).Decode(v)
-	return *v
-}
-
-// DecodeYAML if the type is known and decode error is unexpected. Intended to be paired with Inspect
-func DecodeYAML[T any](r io.Reader) T {
-	v := new(T)
-	_ = yaml.NewDecoder(r).Decode(v)
-	return *v
-}
-
-// DecodeBundle without checking for a decode error. Intended to be paired with Inspect
-func DecodeBundle(r io.Reader) Bundle {
-	bun := NewBundle()
-	_ = NewBundleDecoder(r).Decode(bun)
-	return *bun
-}
-
-func detectBytes(inputBytes []byte) (Type, error) {
+	objChan := make(chan any)
+	doneChan := make(chan struct{})
 	var wg sync.WaitGroup
-	resChan := make(chan Type, 1)
-
-	decodeFuncs := []func([]byte) Type{detectCyclonedxBytes, detectGitleaksBytes, detectSemgrepBytes, detectGrypeBytes,
-		detectBundleBytes, detectConfigBytes}
-
-	// Try each decoder at the same time
-	for _, v := range decodeFuncs {
+	// Non desctructive reader
+	reader := bytes.NewReader(d.Bytes())
+	for i := range d.decoders {
 		wg.Add(1)
-		go func(decodeFunc func([]byte) Type) {
-			defer wg.Done()
-			reportType := decodeFunc(inputBytes)
-			if reportType != Unsupported {
-				resChan <- reportType
+		_, err := reader.WriteTo(d.decoders[i])
+		if err != nil {
+			return nil, err
+		}
+		reader.Seek(0, 0)
+		go func(decoder WriterDecoder) {
+			v, err := decoder.Decode()
+
+			if err != nil {
+				wg.Done()
+				return
 			}
-		}(v)
+
+			objChan <- v
+		}(d.decoders[i])
 	}
 
-	// Wait for all decoders to run, this catches the case that none of them worked
-	go func() {
+	go func(c chan struct{}, wg *sync.WaitGroup) {
 		wg.Wait()
-		resChan <- Unsupported
-	}()
+		c <- struct{}{}
+	}(doneChan, &wg)
 
-	// Wait for a response from either one of the decoders or for all of them to run and fail
-	response := <-resChan
-
-	return response, nil
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	// All decoders finished before one was successful
+	case <-doneChan:
+		return nil, fmt.Errorf("%w: All decoders failed", ErrInvalidType)
+	// One of the decoders were able to successfully decode
+	case obj := <-objChan:
+		return obj, nil
+	}
 }
 
-func detectCyclonedxBytes(b []byte) Type {
-	var cyclonedxScan CyclonedxSbomReport
-
-	if err := json.Unmarshal(b, &cyclonedxScan); err != nil {
-		return Unsupported
-	}
-
-	if cyclonedxScan.BOMFormat != "CycloneDX" {
-		return Unsupported
-	}
-
-	return Cyclonedx
+type WriterDecoder interface {
+	io.Writer
+	Decode() (any, error)
 }
 
-func detectGitleaksBytes(b []byte) Type {
-	var gitleaksScan GitleaksScanReport
-
-	// Gitleaks with no findings will be '[]'
-	if string(b) == "[]" {
-		return Gitleaks
-	}
-
-	if err := json.Unmarshal(b, &gitleaksScan); err != nil {
-		return Unsupported
-	}
-
-	return Gitleaks
+type JSONWriterDecoder[T any] struct {
+	bytes.Buffer
+	checkFunc func(*T) error
 }
 
-func detectSemgrepBytes(b []byte) Type {
-	var semgrepScan SemgrepScanReport
-
-	if err := json.Unmarshal(b, &semgrepScan); err != nil {
-		return Unsupported
+func NewJSONWriterDecoder[T any](check func(*T) error) *JSONWriterDecoder[T] {
+	return &JSONWriterDecoder[T]{
+		checkFunc: check,
 	}
-
-	if semgrepScan.Version == nil {
-		return Unsupported
-	}
-
-	return Semgrep
 }
 
-func detectGrypeBytes(b []byte) Type {
-	var grypeScan GrypeScanReport
-
-	if err := json.Unmarshal(b, &grypeScan); err != nil {
-		return Unsupported
+func (d *JSONWriterDecoder[T]) Decode() (any, error) {
+	obj := new(T)
+	err := json.NewDecoder(d).Decode(obj)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrEncoding, err)
 	}
-
-	if grypeScan.Source == nil {
-		return Unsupported
-	}
-
-	return Grype
-}
-
-func detectBundleBytes(b []byte) Type {
-	var bun Bundle
-	if err := NewBundleDecoder(bytes.NewBuffer(b)).Decode(&bun); err != nil {
-		return Unsupported
-	}
-
-	// No need for verification since it uses a custom decoder
-	return GatecheckBundle
-}
-
-func detectConfigBytes(b []byte) Type {
-	var config Config
-	if err := yaml.Unmarshal(b, &config); err != nil {
-		return Unsupported
-	}
-
-	if config.Grype != nil || config.Semgrep != nil || config.Gitleaks != nil {
-		return GatecheckConfig
-	}
-
-	return Unsupported
+	return obj, d.checkFunc(obj)
 }

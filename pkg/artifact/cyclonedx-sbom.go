@@ -115,9 +115,26 @@ func (r *CyclonedxSbomReport) ShimComponentsAsVulnerabilities() *CyclonedxSbomRe
 	return r
 }
 
+func NewCyclonedxSbomReportDecoder() *JSONWriterDecoder[CyclonedxSbomReport] {
+	return NewJSONWriterDecoder[CyclonedxSbomReport](checkCyclonedxSBOM)
+}
+
+func checkCyclonedxSBOM(r *CyclonedxSbomReport) error {
+	if r == nil {
+		return ErrNilObject
+	}
+
+	if r.BOMFormat != "CycloneDX" {
+		return fmt.Errorf("%w: BOM Format is not CycloneDX", ErrFailedCheck)
+	}
+
+	return nil
+}
+
 type CyclonedxConfig struct {
 	AllowList []CyclonedxListItem `yaml:"allowList,omitempty" json:"allowList,omitempty"`
 	DenyList  []CyclonedxListItem `yaml:"denyList,omitempty" json:"denyList,omitempty"`
+	Required  bool                `yaml:"required" json:"required"`
 	Critical  int                 `yaml:"critical"   json:"critical"`
 	High      int                 `yaml:"high"       json:"high"`
 	Medium    int                 `yaml:"medium"     json:"medium"`

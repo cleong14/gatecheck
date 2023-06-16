@@ -10,9 +10,9 @@ import (
 	gcStrings "github.com/gatecheckdev/gatecheck/pkg/strings"
 )
 
-type GrypeScanReport models.Document
-
 var GrypeValidationFailed = errors.New("grype validation failed")
+
+type GrypeScanReport models.Document
 
 func (r GrypeScanReport) String() string {
 	table := new(gcStrings.Table).WithHeader("Severity", "Package", "Version", "Link")
@@ -32,9 +32,24 @@ func (r GrypeScanReport) String() string {
 	return table.String()
 }
 
+func NewGrypeReportDecoder() *JSONWriterDecoder[GrypeScanReport] {
+	return NewJSONWriterDecoder[GrypeScanReport](checkGrype)
+}
+
+func checkGrype(report *GrypeScanReport) error {
+	if report == nil {
+		return ErrNilObject
+	}
+	if report.Descriptor.Name != "grype" {
+		return fmt.Errorf("%w: Missing Descriptor name", ErrFailedCheck)
+	}
+	return nil
+}
+
 type GrypeConfig struct {
 	AllowList  []GrypeListItem `yaml:"allowList,omitempty" json:"allowList,omitempty"`
 	DenyList   []GrypeListItem `yaml:"denyList,omitempty" json:"denyList,omitempty"`
+	Required   bool            `yaml:"required" json:"required"`
 	Critical   int             `yaml:"critical"   json:"critical"`
 	High       int             `yaml:"high"       json:"high"`
 	Medium     int             `yaml:"medium"     json:"medium"`

@@ -8,10 +8,10 @@ import (
 	"strings"
 )
 
+var SemgrepFailedValidation = errors.New("semgrep failed validation")
+
 // SemgrepScanReport is a data model for a Semgrep Output scan produced by `semgrep scan --json`
 type SemgrepScanReport semgrep.SemgrepOutputV1Jsonschema
-
-var SemgrepFailedValidation = errors.New("semgrep failed validation")
 
 func (r SemgrepScanReport) String() string {
 	table := new(gcStrings.Table).WithHeader("Path", "Line", "Level", "link", "CWE Message")
@@ -34,10 +34,31 @@ func (r SemgrepScanReport) String() string {
 	return table.String()
 }
 
+func NewSemgrepReportDecoder() *JSONWriterDecoder[SemgrepScanReport] {
+	return NewJSONWriterDecoder[SemgrepScanReport](checkSemgrep)
+}
+
+func checkSemgrep(report *SemgrepScanReport) error {
+	if report == nil {
+		return ErrNilObject
+	}
+	if report.Results == nil {
+		return fmt.Errorf("%w: Required field 'Results' is nil", ErrFailedCheck)
+	}
+	if report.Errors == nil {
+		return fmt.Errorf("%w: Required field 'Errors' is nil", ErrFailedCheck)
+	}
+	if report.Paths.Scanned == nil {
+		return fmt.Errorf("%w: Required field 'Scanned' is nil", ErrFailedCheck)
+	}
+	return nil
+}
+
 type SemgrepConfig struct {
-	Info    int `yaml:"info" json:"info"`
-	Warning int `yaml:"warning" json:"warning"`
-	Error   int `yaml:"error" json:"error"`
+	Required bool `yaml:"required" json:"required"`
+	Info     int  `yaml:"info" json:"info"`
+	Warning  int  `yaml:"warning" json:"warning"`
+	Error    int  `yaml:"error" json:"error"`
 }
 
 func ValidateSemgrep(config SemgrepConfig, scanReport SemgrepScanReport) error {

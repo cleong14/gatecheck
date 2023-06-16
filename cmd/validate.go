@@ -123,22 +123,22 @@ func ParseAndValidate(r io.Reader, config artifact.Config, timeout time.Duration
 		if config.Semgrep == nil {
 			return errors.New("no Semgrep configuration specified")
 		}
-		err = artifact.ValidateSemgrep(*config.Semgrep, artifact.DecodeJSON[artifact.SemgrepScanReport](buf))
+		err = artifact.ValidateSemgrep(*config.Semgrep, artifact.DecodeJSONOld[artifact.SemgrepScanReport](buf))
 	case artifact.Cyclonedx:
 		if config.Cyclonedx == nil {
 			return errors.New("no CycloneDx configuration specified")
 		}
-		err = artifact.ValidateCyclonedx(*config.Cyclonedx, artifact.DecodeJSON[artifact.CyclonedxSbomReport](buf))
+		err = artifact.ValidateCyclonedx(*config.Cyclonedx, artifact.DecodeJSONOld[artifact.CyclonedxSbomReport](buf))
 	case artifact.Grype:
 		if config.Grype == nil {
 			return errors.New("no Grype configuration specified")
 		}
-		err = artifact.ValidateGrype(*config.Grype, artifact.DecodeJSON[artifact.GrypeScanReport](buf))
+		err = artifact.ValidateGrype(*config.Grype, artifact.DecodeJSONOld[artifact.GrypeScanReport](buf))
 	case artifact.Gitleaks:
 		if config.Gitleaks == nil {
 			return errors.New("no Gitleaks configuration specified")
 		}
-		err = artifact.ValidateGitleaks(*config.Gitleaks, artifact.DecodeJSON[artifact.GitleaksScanReport](buf))
+		err = artifact.ValidateGitleaks(*config.Gitleaks, artifact.DecodeJSONOld[artifact.GitleaksScanReport](buf))
 	case artifact.GatecheckBundle:
 		var errStrings []string
 		bundle := artifact.DecodeBundle(buf)

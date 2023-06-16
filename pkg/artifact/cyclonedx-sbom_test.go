@@ -2,12 +2,47 @@ package artifact
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
+	"io"
+	"os"
 	"strings"
 	"testing"
 
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"gopkg.in/yaml.v3"
 )
+
+func TestCheckCyclonedxSBOM(t *testing.T) {
+	f, _ := os.Open("../../test/cyclonedx-syft-sbom.json") 
+	decoder := NewCyclonedxSbomReportDecoder()
+
+	if _, err := io.Copy(decoder, f); err != nil {
+		t.Fatal(err)
+	}
+	goodReport, err := decoder.Decode()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	testTable := []struct {
+		label   string
+		input   *CyclonedxSbomReport
+		wantErr error
+	}{
+		{label: "success", input: goodReport.(*CyclonedxSbomReport), wantErr: nil},
+		{label: "nil-report", input: nil, wantErr: ErrNilObject},
+		{label: "empty-report", input: &CyclonedxSbomReport{}, wantErr: ErrFailedCheck},
+	}
+
+	for i, v := range testTable {
+		t.Run(fmt.Sprintf("test-%d-%s", i, v.label), func(t *testing.T) {
+			if err := checkCyclonedxSBOM(v.input); !errors.Is(err, v.wantErr) {
+				t.Fatalf("want: %v, got: %v", v.wantErr, err)
+			}
+		})
+	}
+}
 
 func TestCyclonedxConfig(t *testing.T) {
 	config := &CyclonedxConfig{
