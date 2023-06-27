@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/gob"
+	"errors"
 	"fmt"
+	"io"
 	"strings"
+	"sync"
 
 	"github.com/dustin/go-humanize"
 	gs "github.com/gatecheckdev/gatecheck/pkg/strings"
@@ -85,24 +88,27 @@ func (b *Bundle) String() string {
 	return sb.String()
 }
 
+// BundleReader converts a bundle into a gzip'd binary gob. implements io.writer via internal buffer
 type BundleReader struct {
 	bytes.Buffer
 }
 
-func NewBundleReader(bundle *Bundle) (*BundleReader, error) {
+func NewBundleReader(bundle *Bundle) *BundleReader {
 	bundleReader := new(BundleReader)
+	reader, writer := io.Pipe()
 
-	buf := new(bytes.Buffer)
-	if err := gob.NewEncoder(buf).Encode(bundle); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrEncoding, err)
-	}
+	go func() {
+		defer writer.Close()
+		_ = gob.NewEncoder(writer).Encode(bundle)
+	}()
 
 	gzipWriter := gzip.NewWriter(bundleReader)
-	buf.WriteTo(gzipWriter)
+
+	_, _ = io.Copy(gzipWriter, reader)
 
 	gzipWriter.Close()
 
-	return bundleReader, nil
+	return bundleReader
 }
 
 type BundleWriter struct {
@@ -124,7 +130,76 @@ func (w *BundleWriter) Decode() (any, error) {
 	if err := gob.NewDecoder(buf).Decode(bundle); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrEncoding, err)
 	}
+
+	for _, a := range bundle.Artifacts {
+		if a.Type == TypeGatecheckConfig {
+			writer := new(ConfigWriter)
+			writer.ReadFrom(bytes.NewReader(a.Content))
+			c, _ := writer.Decode()
+			bundle.config = c.(*Config)
+		}
+	}
+
 	return bundle, nil
+}
+
+func ValidateBundlePtr(config Config, report any) error {
+	bundle, ok := report.(*Bundle)
+	if !ok {
+		return fmt.Errorf("%w: %T is an invalid report type", ErrValidation, bundle)
+	}
+	for _, required := range config.Required() {
+		for _, a := range bundle.Artifacts {
+			if a.Type == required {
+				continue
+			}
+			return fmt.Errorf("%w: %s is required but bundle does not contain this type of artifact", ErrValidation, required)
+		}
+	}
+
+	type result struct {
+		err error
+	}
+
+	resultChan := make(chan result, len(bundle.Artifacts))
+	var wg sync.WaitGroup
+
+	for _, a := range bundle.Artifacts {
+		wg.Add(1)
+		go func(targetArtifact Artifact) {
+			defer wg.Done()
+			// Needed for now since the validators map in artifact.go calls this function
+			validatorFuncs := map[TypeID]ValidateFunction{
+				TypeGrypeScanReport:     ValidateGrypePtr,
+				TypeSemgrepScanReport:   ValidateSemgrepPtr,
+				TypeGitleaksScanReport:  ValidateGitleaksPtr,
+				TypeCyclonedxSBOMReport: ValidateCyclonedxPtr,
+			}
+			validator := Validator{config: config, validatorFuncs: validatorFuncs}
+			_, _ = validator.ReadFrom(bytes.NewReader(targetArtifact.ContentBytes()))
+			if err := validator.Validate(); err != nil {
+				resultChan <- result{err: fmt.Errorf("bundle artifact '%s': %w", targetArtifact.Label, err)}
+				return
+			}
+			resultChan <- result{err: nil}
+		}(a)
+	}
+	wg.Wait()
+	close(resultChan)
+
+	errs := make([]error, 0)
+	for res := range resultChan {
+		if res.err != nil {
+			errs = append(errs, res.err)
+		}
+	}
+
+	returnErr := errors.Join(errs...)
+	if returnErr != nil {
+		return fmt.Errorf("%w: %v", ErrValidation, returnErr)
+	}
+
+	return nil
 }
 
 func ExampleBundle() {
@@ -133,13 +208,12 @@ func ExampleBundle() {
 	bundle := NewBundle(artifact1)
 
 	// Using the bundle reader
-	reader, err := NewBundleReader(bundle)
+	buffer := new(bytes.Buffer)
+	_, err := NewBundleReader(bundle).WriteTo(buffer)
+
 	if err != nil {
 		panic(err)
 	}
-
-	buffer := new(bytes.Buffer)
-	buffer.ReadFrom(reader)
 
 	// Using the Bundle writer/decoder
 	writerDecoder := new(BundleWriter)

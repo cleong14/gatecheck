@@ -63,6 +63,18 @@ type GrypeListItem struct {
 	Reason string `yaml:"reason" json:"reason"`
 }
 
+func ValidateGrypePtr(config Config, report any) error {
+	if config.Grype == nil {
+		return fmt.Errorf("%w: No Grype validation rules", ErrValidation)
+	}
+
+	scanReport, ok := report.(*GrypeScanReport)	
+	if !ok {
+		return fmt.Errorf("%w: %T is an invalid report type", ErrValidation, scanReport)
+	}
+	return ValidateGrype(*config.Grype, *scanReport)
+}
+
 func ValidateGrype(config GrypeConfig, scanReport GrypeScanReport) error {
 	found := map[string]int{"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Negligible": 0, "Unknown": 0}
 	allowed := map[string]int{

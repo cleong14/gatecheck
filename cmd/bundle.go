@@ -1,49 +1,55 @@
 package cmd
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path"
 
 	"github.com/gatecheckdev/gatecheck/internal/log"
-	"github.com/gatecheckdev/gatecheck/pkg/artifact"
+	archive "github.com/gatecheckdev/gatecheck/pkg/archive"
 	"github.com/spf13/cobra"
 )
 
 func NewBundleCmd() *cobra.Command {
 
 	var extractCmd = &cobra.Command{
-		Use: "extract <GATECHECK BUNDLE>",
+		Use:   "extract <GATECHECK BUNDLE>",
 		Short: "Extract a specific file from a gatecheck bundle",
-		Args: cobra.ExactArgs(1),
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			key, _ := cmd.Flags().GetString("key")
-			if key == "" {
-				return fmt.Errorf("%w: No key provided", ErrorUserInput)
+			label, _ := cmd.Flags().GetString("label")
+			if label == "" {
+				return fmt.Errorf("%w: No label provided", ErrorUserInput)
 			}
 
-			bun := artifact.NewBundle()		
 			f, err := os.Open(args[0])
 			if err != nil {
 				return fmt.Errorf("%w: %v", ErrorFileAccess, err)
 			}
 
-			if err := artifact.NewBundleDecoder(f).Decode(bun); err != nil {
+			bundle, err := new(archive.Decoder).DecodeFrom(f)
+			if err != nil {
 				return fmt.Errorf("%w: %v", ErrorEncoding, err)
 			}
 
+			artifactBytes, ok := bundle.(*archive.Bundle).Artifacts[label]
+			if !ok {
+				return fmt.Errorf("%w: '%s' not found in bundle '%s'", ErrorUserInput, label, args[0])
+			}
 
-			n, err := bun.Write(cmd.OutOrStdout(), key)
-			log.Infof("%d bytes written to STDOUT", n)	
+			n, err := io.Copy(os.Stdout, bytes.NewReader(artifactBytes))
+			log.Infof("%d bytes written to STDOUT", n)
 
 			return err
 
 		},
 	}
 
-	extractCmd.Flags().String("key", "", "The key of the file to extract from the bundle")
-	extractCmd.MarkFlagRequired("key")
+	extractCmd.Flags().String("label", "", "The label of the file to extract from the bundle")
+	extractCmd.MarkFlagRequired("label")
 
 	var cmd = &cobra.Command{
 		Use:   "bundle [FILE ...]",
@@ -60,21 +66,25 @@ func NewBundleCmd() *cobra.Command {
 				return fmt.Errorf("%w: %v", ErrorFileAccess, err)
 			}
 
-			bun := artifact.NewBundle()
+			var bundle *archive.Bundle
+
+			decoder := new(archive.Decoder)
 			// Attempt to decode the file into the bundle object
 			if info, _ := outputFile.Stat(); info.Size() != 0 {
 				log.Infof("Existing Bundle File Size: %d", info.Size())
 				log.Infof("Decoding bundle...")
-				if err := artifact.NewBundleDecoder(outputFile).Decode(bun); err != nil {
+				decodedBundle, err := decoder.DecodeFrom(outputFile)
+				if err != nil {
 					return fmt.Errorf("%w: %v", ErrorEncoding, err)
 				}
+				bundle = decodedBundle.(*archive.Bundle)
 				log.Info("Successful bundle decode, new files will be added to existing bundle")
 			}
 
 			// Open each file, create a bundle artifact and add it to the bundle object
 			for _, v := range args {
 				log.Infof("Opening File: %s", v)
-				f, err := os.Open(v)
+				b, err := os.ReadFile(v)
 				if errors.Is(err, os.ErrNotExist) && flagAllowMissing {
 					log.Warnf("%s does not exist, skipping", v)
 					continue
@@ -84,23 +94,18 @@ func NewBundleCmd() *cobra.Command {
 					return fmt.Errorf("%w: %v", ErrorFileAccess, err)
 				}
 				label := path.Base(v)
-				// File already opened, shouldn't have a reason to error
-				art, _ := artifact.NewArtifact(label, f)
-
-				// Error would only occur on a missing label which isn't possible here
-				_ = bun.Add(art)
-
-				log.Infof("New Artifact: %s", art.String())
+				bundle.Artifacts[label] = b
 			}
-			log.Info(bun.String())
 
-			log.Info("Truncating existing file..")
+			_ = archive.NewPrettyWriter(cmd.OutOrStderr()).Encode(bundle)
+
+			log.Info("Truncating existing file...")
 			_ = outputFile.Truncate(0)
 			_, _ = outputFile.Seek(0, 0)
 
-			log.Info("Writing bundle to file..")
+			log.Info("Writing bundle to file...")
 			// Finish by encoding the bundle to the file
-			return artifact.NewBundleEncoder(outputFile).Encode(bun)
+			return archive.NewEncoder(outputFile).Encode(bundle)
 		},
 	}
 
@@ -110,6 +115,6 @@ func NewBundleCmd() *cobra.Command {
 	_ = cmd.MarkFlagFilename("output", "gatecheck")
 	_ = cmd.MarkFlagRequired("output")
 
-	cmd.AddCommand(extractCmd)	
+	cmd.AddCommand(extractCmd)
 	return cmd
 }

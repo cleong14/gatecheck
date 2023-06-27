@@ -1,11 +1,11 @@
 package cmd
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gatecheckdev/gatecheck/internal/log"
@@ -21,24 +21,33 @@ func NewPrintCommand(decodeTimeout time.Duration, pipedFile *os.File) *cobra.Com
 		Example: "gatecheck print grype-report.json semgrep-report.json",
 		RunE: func(cmd *cobra.Command, args []string) error {
 
+			decoder := new(artifact.AsyncDecoder)
+
 			if pipedFile != nil {
 				log.Infof("Piped File Received: %s", pipedFile.Name())
-				err := ParseAndFPrint(pipedFile, cmd.OutOrStdout(), decodeTimeout)
-				if err != nil {
-					return fmt.Errorf("%w: %v", ErrorEncoding, err)
+				if _, err := decoder.ReadFrom(pipedFile); err != nil {
+					return fmt.Errorf("%w: %v", ErrorFileAccess, err)
 				}
+				ctx, cancel := context.WithTimeout(context.Background(), decodeTimeout)
+				defer cancel()
+				v, _ := decoder.Decode(ctx)
+				printArtifact(cmd.OutOrStdout(), v)
 			}
 
 			for _, v := range args {
 				log.Infof("Opening file: %s", v)
+				ctx, cancel := context.WithTimeout(context.Background(), decodeTimeout)
+				defer cancel()
 				f, err := os.Open(v)
 				if err != nil {
 					return fmt.Errorf("%w: %v", ErrorFileAccess, err)
 				}
-				err = ParseAndFPrint(f, cmd.OutOrStdout(), decodeTimeout)
-				if err != nil {
-					return fmt.Errorf("%w: %v", ErrorEncoding, err)
+				decoder = new(artifact.AsyncDecoder)
+				if _, err := decoder.ReadFrom(f); err != nil {
+					return fmt.Errorf("%w: %v", ErrorFileAccess, err)
 				}
+				v, _ := decoder.Decode(ctx)
+				printArtifact(cmd.OutOrStdout(), v)
 			}
 
 			return nil
@@ -48,38 +57,22 @@ func NewPrintCommand(decodeTimeout time.Duration, pipedFile *os.File) *cobra.Com
 	return command
 }
 
-func ParseAndFPrint(r io.Reader, w io.Writer, timeout time.Duration) error {
-	var err error
-
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	rType, b, err := artifact.ReadWithContext(ctx, r)
-
-	if err != nil {
-		return err
+func printArtifact(w io.Writer, v any) {
+	outputString := ""
+	switch v.(type) {
+	case *artifact.CyclonedxSbomReport:
+		outputString = v.(*artifact.CyclonedxSbomReport).String()
+	case *artifact.SemgrepScanReport:
+		outputString = v.(*artifact.SemgrepScanReport).String()
+	case *artifact.GrypeScanReport:
+		outputString = v.(*artifact.GrypeScanReport).String()
+	case *artifact.GitleaksScanReport:
+		outputString = v.(*artifact.GitleaksScanReport).String()
+	case *artifact.Bundle:
+		outputString = v.(*artifact.Bundle).String()
 	}
 
-	buf := bytes.NewBuffer(b)
-	log.Infof("Bytes received: %d", len(b))
-	log.Infof("Detected Type: %s", rType)
+	_, _ = strings.NewReader(outputString).WriteTo(w)
 
-	// No need to check decode errors since it's decoded in the DetectReportType Function
-	switch rType {
-	case artifact.Cyclonedx:
-		_, err = fmt.Fprintln(w, artifact.DecodeJSONOld[artifact.CyclonedxSbomReport](buf))
-	case artifact.Semgrep:
-		_, err = fmt.Fprintln(w, artifact.DecodeJSONOld[artifact.SemgrepScanReport](buf))
-	case artifact.Grype:
-		_, err = fmt.Fprintln(w, artifact.DecodeJSONOld[artifact.GrypeScanReport](buf))
-	case artifact.Gitleaks:
-		_, err = fmt.Fprintln(w, artifact.DecodeJSONOld[artifact.GitleaksScanReport](buf))
-	case artifact.GatecheckBundle:
-		bundle := artifact.DecodeBundle(buf)
-		_, err = fmt.Fprintln(w, bundle.String())
-	default:
-		_, err = fmt.Fprintln(w, "Unsupported file type")
-	}
-
-	return err
 }
+

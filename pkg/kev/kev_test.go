@@ -1,4 +1,4 @@
-package blacklist
+package kev
 
 import (
 	"github.com/anchore/grype/grype/presenter/models"
@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestBlacklistedVulnerabilities(t *testing.T) {
+func TestVulnerabilities(t *testing.T) {
 	r := artifact.GrypeScanReport{Matches: []models.Match{
 		{Vulnerability: models.Vulnerability{VulnerabilityMetadata: models.VulnerabilityMetadata{ID: "A"}}},
 		{Vulnerability: models.Vulnerability{VulnerabilityMetadata: models.VulnerabilityMetadata{ID: "B"}}},
@@ -17,14 +17,14 @@ func TestBlacklistedVulnerabilities(t *testing.T) {
 		{CveID: "C"},
 	}}
 
-	matchedVulnerabilities := BlacklistedVulnerabilities(r, br)
+	matchedVulnerabilities := Vulnerabilities(r, br)
 
 	if len(matchedVulnerabilities) != 2 {
 		t.Error(matchedVulnerabilities)
 		t.Fatal("Matching algo failed")
 	}
 
-	t.Log(StringBlacklistedVulnerabilities("2022.11.08", matchedVulnerabilities))
+	t.Log(VulnerabilitiesStr("2022.11.08", matchedVulnerabilities))
 
 	t.Run("test-no-vulnerabilities", func(t *testing.T) {
 
@@ -33,12 +33,12 @@ func TestBlacklistedVulnerabilities(t *testing.T) {
 			{CveID: "F"},
 		}}
 
-		matchedVulnerabilities := BlacklistedVulnerabilities(r, br)
+		matchedVulnerabilities := Vulnerabilities(r, br)
 		if len(matchedVulnerabilities) != 0 {
 			t.Fatal("False positives found")
 		}
 
-		t.Log(StringBlacklistedVulnerabilities("2022.11.08", matchedVulnerabilities))
+		t.Log(VulnerabilitiesStr("2022.11.08", matchedVulnerabilities))
 	})
 
 }

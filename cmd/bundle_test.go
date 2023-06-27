@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -11,48 +12,72 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gatecheckdev/gatecheck/pkg/artifact"
+	archive "github.com/gatecheckdev/gatecheck/pkg/archive"
+	gce "github.com/gatecheckdev/gatecheck/pkg/encoding"
 )
 
 func TestExtractCmd(t *testing.T) {
-	mockBuf := bytes.NewBufferString("ABC-123")
-	a, _ := artifact.NewArtifact("mock_artifact.txt", mockBuf)
-	bun := artifact.NewBundle()
-	_ = bun.Add(a)
+	type ObjA struct {
+		ValueA int `json:"value_a"`
+	}
+	type ConfigA struct {
+		ValueA int `yaml:"value_a"`
+	}
+
+	buf := new(bytes.Buffer)
+	objA := &ObjA{15}
+	json.NewEncoder(buf).Encode(objA)
+
+	bundle := archive.NewBundle()
+	bundle.Artifacts["mock_artifact.json"] = buf.Bytes()
 
 	tempBundleFilename := path.Join(t.TempDir(), "bundle.gatecheck")
 
 	f, _ := os.Create(tempBundleFilename)
-
-	if err := artifact.NewBundleEncoder(f).Encode(bun); err != nil {
-		t.Fatal(err)
-	}
+	_ = archive.NewEncoder(f).Encode(bundle)
 	f.Close()
 
-	t.Run("success", func(t *testing.T) {
-		commandString := fmt.Sprintf("bundle extract --key %s %s", "mock_artifact.txt", tempBundleFilename)
+	t.Run("success-extract", func(t *testing.T) {
+		commandString := fmt.Sprintf("bundle extract --label %s %s", "mock_artifact.json", tempBundleFilename)
 		out, err := Execute(commandString, CLIConfig{})
 		if err != nil {
 			t.Log(out)
 			t.Fatal(err)
 		}
+		f := MustOpen(tempBundleFilename, t.Fatal)
+		b, err := new(archive.Decoder).DecodeFrom(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		buf := new(bytes.Buffer)
+
+		decoder := gce.NewJSONWriterDecoder[ObjA]("Mock Obj A", func(*ObjA) error { return nil })
+
+		asyncDecoder := new(gce.AsyncDecoder).WithDecoders(decoder)
+		archive.NewPrettyWriter(buf).WithAsyncDecoder(asyncDecoder).Encode(b.(*archive.Bundle))
+		t.Log(buf.String())
+		if !strings.Contains(buf.String(), "Mock Obj A") {
+			t.Fatal("want: Mock Obj A in output")	
+		}
+
 	})
+
 	t.Run("file-access-error", func(t *testing.T) {
-		commandString := fmt.Sprintf("bundle extract --key %s %s", "mock_artifact.txt", fileWithBadPermissions(t))
+		commandString := fmt.Sprintf("bundle extract --label %s %s", "mock_artifact.json", fileWithBadPermissions(t))
 		_, err := Execute(commandString, CLIConfig{})
 		if !errors.Is(err, ErrorFileAccess) {
 			t.Fatal(err)
 		}
 	})
 	t.Run("file-bad-encoding", func(t *testing.T) {
-		commandString := fmt.Sprintf("bundle extract --key %s %s", "mock_artifact.txt", fileWithBadJSON(t))
+		commandString := fmt.Sprintf("bundle extract --label %s %s", "mock_artifact.json", fileWithBadJSON(t))
 		_, err := Execute(commandString, CLIConfig{})
 		if !errors.Is(err, ErrorEncoding) {
 			t.Fatal(err)
 		}
 	})
 	t.Run("file-bad-key", func(t *testing.T) {
-		commandString := fmt.Sprintf("bundle extract --key %s %s", "", tempBundleFilename)
+		commandString := fmt.Sprintf("bundle extract --label %s %s", "", tempBundleFilename)
 		_, err := Execute(commandString, CLIConfig{})
 		if !errors.Is(err, ErrorUserInput) {
 			t.Fatal(err)
@@ -96,7 +121,7 @@ func TestNewBundleCmd(t *testing.T) {
 		}
 	})
 
-	t.Run("new-bundle", func(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
 		outFile := path.Join(t.TempDir(), "bundle.gatecheck")
 		targetFile := path.Join(t.TempDir(), "random-1.file")
 		b := make([]byte, 1000)
@@ -113,13 +138,23 @@ func TestNewBundleCmd(t *testing.T) {
 
 		// Check bundle for the artifact
 		postOutFile := MustOpen(outFile, t.Fatal)
-		bun := artifact.DecodeBundle(postOutFile)
-		genericFile, ok := bun.Generic["random-1.file"]
+
+		obj, err := new(archive.Decoder).DecodeFrom(postOutFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		bun, ok := obj.(*archive.Bundle)
+		if !ok {
+			t.Fatalf("got type %T", obj)
+		}
+
+		genericBytes, ok := bun.Artifacts["random-1.file"]
 		if !ok {
 			t.Fatal("Could not extract generic file")
 		}
 
-		if len(genericFile.Content) != 1000 {
+		if len(genericBytes) != 1000 {
 			t.Fatal("Invalid decoded file size")
 		}
 
@@ -174,5 +209,4 @@ func TestNewBundleCmd(t *testing.T) {
 			t.Log(output)
 		})
 	})
-
 }

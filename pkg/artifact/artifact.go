@@ -24,6 +24,15 @@ const (
 	TypeGeneric                    = "Generic"
 )
 
+var ValidatorFunctions = map[TypeID]ValidateFunction{
+	TypeGrypeScanReport:     ValidateGrypePtr,
+	TypeSemgrepScanReport:   ValidateSemgrepPtr,
+	TypeGitleaksScanReport:  ValidateGitleaksPtr,
+	TypeCyclonedxSBOMReport: ValidateCyclonedxPtr,
+	TypeGatecheckBundle:     ValidateBundlePtr,
+	TypeGeneric:             func(_ Config, _ any) error { return nil },
+}
+
 func StandardDecoders() []WriterDecoder {
 	return []WriterDecoder{
 		NewGrypeReportDecoder(),

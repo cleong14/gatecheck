@@ -2,7 +2,6 @@ package artifact
 
 import (
 	"bytes"
-	"io"
 	"strings"
 	"testing"
 )
@@ -43,15 +42,14 @@ func TestNewBundle(t *testing.T) {
 func TestBundleReader(t *testing.T) {
 	grypeArtifact, _ := NewArtifact("grype-report.json", bytes.NewReader(MustReadFile("../../test/grype-report.json", t.Fatal)))
 	semgrepArtifact, _ := NewArtifact("semgrep-report.json", bytes.NewReader(MustReadFile("../../test/semgrep-sast-report.json", t.Fatal)))
-	bundle := NewBundle(grypeArtifact, semgrepArtifact)
-
-	reader, err := NewBundleReader(bundle)
-	if err != nil {
-		t.Fatal(err)
-	}
+	config := NewConfig()
+	config.Grype.Required = true
+	configReader, _ := NewConfigReader(config)
+	configArtifact, _ := NewArtifact("gatecheck.yaml", configReader)
+	bundle := NewBundle(grypeArtifact, semgrepArtifact, configArtifact)
 
 	tempBuffer := new(bytes.Buffer)
-	if _, err := reader.WriteTo(tempBuffer); err != nil {
+	if _, err := NewBundleReader(bundle).WriteTo(tempBuffer); err != nil {
 		t.Fatal(err)
 	}
 
@@ -79,33 +77,14 @@ func TestBundleReader(t *testing.T) {
 	if gotDigest != wantDigest {
 		t.Fatalf("want: %s got: %s", wantDigest, gotDigest)
 	}
+
+	if bundle.config.Grype.Required != true {
+		t.Fatalf("want: grype config Required, got: %+v", &bundle.config.Grype)
+	}
+
+	t.Logf("Config: %+v", bundle.config)
+	t.Logf("Grype Config: %+v", bundle.config.Grype)
+	t.Log(bundle, "\n")
+	t.Log(decodeBundle)
 }
 
-func TestWork(t *testing.T) {
-	bundle := &Bundle{Version: "1", Artifacts: make(map[string]Artifact)}
-
-	a, _ := NewArtifact("one", bytes.NewBufferString("content for one"))
-
-	bundle.Artifacts[a.Label] = a
-
-	r, err := NewBundleReader(bundle)
-	if err != nil {
-		t.Fatal(err)
-	}
-	buf := new(bytes.Buffer)
-
-	if _, err := io.Copy(buf, r); err != nil {
-		t.Fatal(err)
-	}
-
-	bundleWriter := new(BundleWriter)
-	if _, err := buf.WriteTo(bundleWriter); err != nil {
-		t.Fatal(err)
-	}
-
-	_, err = bundleWriter.Decode()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-}

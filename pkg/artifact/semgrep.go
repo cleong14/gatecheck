@@ -3,9 +3,11 @@ package artifact
 import (
 	"errors"
 	"fmt"
-	semgrep "github.com/BacchusJackson/go-semgrep"
-	gcStrings "github.com/gatecheckdev/gatecheck/pkg/strings"
 	"strings"
+
+	semgrep "github.com/BacchusJackson/go-semgrep"
+	"github.com/gatecheckdev/gatecheck/internal/log"
+	gcStrings "github.com/gatecheckdev/gatecheck/pkg/strings"
 )
 
 var SemgrepFailedValidation = errors.New("semgrep failed validation")
@@ -61,6 +63,18 @@ type SemgrepConfig struct {
 	Error    int  `yaml:"error" json:"error"`
 }
 
+func ValidateSemgrepPtr(config Config, report any) error {
+	if config.Semgrep == nil {
+		return fmt.Errorf("%w: No Semgrep validation rules", ErrValidation)
+	}
+
+	scanReport, ok := report.(*SemgrepScanReport)
+	if !ok {
+		return fmt.Errorf("%w: %T is an invalid report type", ErrValidation, scanReport)
+	}
+	return ValidateSemgrep(*config.Semgrep, *scanReport)
+}
+
 func ValidateSemgrep(config SemgrepConfig, scanReport SemgrepScanReport) error {
 	allowed := map[string]int{"INFO": config.Info, "WARNING": config.Warning, "ERROR": config.Error}
 	found := map[string]int{"INFO": 0, "WARNING": 0, "ERROR": 0}
@@ -81,6 +95,8 @@ func ValidateSemgrep(config SemgrepConfig, scanReport SemgrepScanReport) error {
 			errStrings = append(errStrings, s)
 		}
 	}
+
+	log.Infof("Semgrep Findings: %v", gcStrings.PrettyPrintMap(found))
 	if len(errStrings) == 0 {
 		return nil
 	}

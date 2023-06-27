@@ -149,6 +149,18 @@ type CyclonedxListItem struct {
 	Reason string `yaml:"reason" json:"reason"`
 }
 
+func ValidateCyclonedxPtr(config Config, report any) error {
+	if config.Cyclonedx == nil {
+		return fmt.Errorf("%w: No Cyclonedx validation rules", ErrValidation)
+	}
+
+	scanReport, ok := report.(*CyclonedxSbomReport)	
+	if !ok {
+		return fmt.Errorf("%w: %T is an invalid report type", ErrValidation, scanReport)
+	}
+	return ValidateCyclonedx(*config.Cyclonedx, *scanReport)
+}
+
 func ValidateCyclonedx(config CyclonedxConfig, scanReport CyclonedxSbomReport) error {
 	found := map[string]int{"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Info": 0, "None": 0, "Unknown": 0}
 	allowed := map[string]int{

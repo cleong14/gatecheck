@@ -11,11 +11,21 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gatecheckdev/gatecheck/internal/fs"
 	"github.com/gatecheckdev/gatecheck/pkg/artifact"
-	"github.com/gatecheckdev/gatecheck/pkg/blacklist"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 )
+
+func auditError(w io.Writer, err error, audit bool) error {
+	if !audit && err != nil {
+		return err
+	}
+	if audit && err != nil {
+		_, _ = fmt.Fprint(w, err)
+		return nil
+	}
+	return err
+}
 
 func NewValidateCmd(decodeTimeout time.Duration) *cobra.Command {
 	var cmd = &cobra.Command{
@@ -23,43 +33,34 @@ func NewValidateCmd(decodeTimeout time.Duration) *cobra.Command {
 		Short: "Validate reports or a bundle using thresholds set in the Gatecheck configuration file",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			var config artifact.Config
-			var kevBlacklist artifact.KEVCatalog
-			var grypeScan artifact.GrypeScanReport
+			var kevCatalog artifact.KEVCatalog
+			// var grypeScan artifact.GrypeScanReport
 
 			var validationError error = nil
 
 			configFilename, _ := cmd.Flags().GetString("config")
-			kevFilename, _ := cmd.Flags().GetString("blacklist")
-			audit, _ := cmd.Flags().GetBool("audit")
+			kevFilename, _ := cmd.Flags().GetString("kev")
+			auditFlag, _ := cmd.Flags().GetBool("audit")
 
-			// Open the config file
-			configFile, err := os.Open(configFilename)
+			c, err := fs.ReadDecodeFile(configFilename, new(artifact.ConfigWriter))
+
 			if err != nil {
-				return fmt.Errorf("%w: %v", ErrorFileAccess, err)
-			}
-			if err := yaml.NewDecoder(configFile).Decode(&config); err != nil {
 				return fmt.Errorf("%w: %v", ErrorEncoding, err)
 			}
 
-			// Open the target file
-			targetBytes, err := os.ReadFile(args[0])
+			validator := artifact.NewValidator(*c.(*artifact.Config))
+
+			_, err = fs.ReadFile(args[0], validator)
 			if err != nil {
 				return fmt.Errorf("%w: %v", ErrorFileAccess, err)
 			}
 
-			err = ParseAndValidate(bytes.NewBuffer(targetBytes), config, decodeTimeout)
-			cmd.PrintErrln(err)
-			if err != nil {
-				validationError = ErrorValidation
-			}
+			// err = auditError(cmd.ErrOrStderr(), validator.Validate(), auditFlag)
+			validationError = validator.Validate()
 
 			// Return early if no KEV file passed
 			if kevFilename == "" {
-				if audit {
-					return nil
-				}
-				return validationError
+				return auditError(cmd.ErrOrStderr(), validationError, auditFlag)
 			}
 
 			kevFile, err := os.Open(kevFilename)
@@ -67,29 +68,32 @@ func NewValidateCmd(decodeTimeout time.Duration) *cobra.Command {
 				return fmt.Errorf("%w: %v", ErrorFileAccess, err)
 			}
 
-			if err := json.NewDecoder(kevFile).Decode(&kevBlacklist); err != nil {
+			if err := json.NewDecoder(kevFile).Decode(&kevCatalog); err != nil {
 				return fmt.Errorf("%w: %v", ErrorEncoding, err)
 			}
 
 			// Decode for Grype and return an error on fail because only grype can be validated with a blacklist
-			if err := json.NewDecoder(bytes.NewBuffer(targetBytes)).Decode(&grypeScan); err != nil {
-				return fmt.Errorf("%w: only Grype Reports are supported with KEV: %v", ErrorEncoding, err)
-			}
-
-			vulnerabilities := blacklist.BlacklistedVulnerabilities(grypeScan, kevBlacklist)
-
-			cmd.Println(blacklist.StringBlacklistedVulnerabilities(kevBlacklist.CatalogVersion, vulnerabilities))
-
-			cmd.Println(fmt.Sprintf("%d Vulnerabilities listed on CISA Known Exploited Vulnerabilities Blacklist",
-				len(vulnerabilities)))
-
-			if len(vulnerabilities) > 0 {
-				validationError = ErrorValidation
-			}
-
-			if audit == true {
-				return nil
-			}
+			// decoder := artifact.NewGrypeReportDecoder()
+			// a, err := decoder.Decode()
+			//
+			// if err != nil {
+			// 	return fmt.Errorf("%w: only Grype Reports are supported with KEV: %v", ErrorEncoding, err)
+			// }
+			//
+			// vulnerabilities := blacklist.BlacklistedVulnerabilities(grypeScan, kevCatalog)
+			//
+			// cmd.Println(blacklist.StringBlacklistedVulnerabilities(kevCatalog.CatalogVersion, vulnerabilities))
+			//
+			// cmd.Println(fmt.Sprintf("%d Vulnerabilities listed on CISA Known Exploited Vulnerabilities Blacklist",
+			// 	len(vulnerabilities)))
+			//
+			// if len(vulnerabilities) > 0 {
+			// 	validationError = ErrorValidation
+			// }
+			//
+			// if auditFlag == true {
+			// 	return nil
+			// }
 
 			return validationError
 		},

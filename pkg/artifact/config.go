@@ -28,7 +28,7 @@ func (c *Config) Declared() map[TypeID]any {
 		declared[TypeSemgrepScanReport] = c.Semgrep
 	}
 	if c.Gitleaks != nil {
-		declared[TypeGrypeScanReport] = c.Gitleaks
+		declared[TypeGitleaksScanReport] = c.Gitleaks
 	}
 	return declared
 }

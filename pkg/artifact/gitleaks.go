@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/gatecheckdev/gatecheck/internal/log"
 	gcStrings "github.com/gatecheckdev/gatecheck/pkg/strings"
 	"github.com/zricethezav/gitleaks/v8/report"
 )
@@ -63,12 +64,26 @@ type GitleaksConfig struct {
 	SecretsAllowed bool `yaml:"secretsAllowed" json:"secretsAllowed"`
 }
 
-func ValidateGitleaks(config GitleaksConfig, scanReport GitleaksScanReport) error {
-	if config.SecretsAllowed {
-		return nil
+func ValidateGitleaksPtr(config Config, report any) error {
+	if config.Gitleaks == nil {
+		return fmt.Errorf("%w: No Gitleaks validation rules", ErrValidation)
 	}
+
+	scanReport, ok := report.(*GitleaksScanReport)
+	if !ok {
+		return fmt.Errorf("%w: %T is an invalid report type", ErrValidation, scanReport)
+	}
+	return ValidateGitleaks(*config.Gitleaks, *scanReport)
+}
+
+func ValidateGitleaks(config GitleaksConfig, scanReport GitleaksScanReport) error {
 	if len(scanReport) == 0 {
 		return nil
 	}
-	return fmt.Errorf("%w: %d secrets detected", GitleaksValidationFailed, len(scanReport))
+	msg := fmt.Sprintf("Gitleaks: %d secrets detected", len(scanReport))
+	log.Info(msg)
+	if config.SecretsAllowed {
+		return nil
+	}
+	return fmt.Errorf("%w: %s", GitleaksValidationFailed, msg)
 }

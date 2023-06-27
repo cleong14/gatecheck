@@ -247,7 +247,7 @@ func TestParseAndValidate_bundle(t *testing.T) {
 	semgrepArtifact, _ := artifact.NewArtifact("semgrep", MustOpen(semgrepTestReport, t.Fatal))
 	gitleaksArtifact, _ := artifact.NewArtifact("gitleaks", MustOpen(gitleaksTestReport, t.Fatal))
 
-	bundle := artifact.NewBundle()
+	bundle := artifact.NewBundleOld()
 	_ = bundle.Add(grypeArtifact, semgrepArtifact, gitleaksArtifact)
 
 	t.Run("fail-validation", func(t *testing.T) {

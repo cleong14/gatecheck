@@ -10,6 +10,19 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+func TestConfig_IsRequired(t *testing.T) {
+
+	config := NewConfig()
+	config.Grype.Required = true
+
+	if config.Required()[0] != TypeGrypeScanReport {
+		t.Fatalf("want: %s, got: %s", TypeGrypeScanReport, config.Required()[0])
+	}
+	if _, ok := config.Declared()[TypeGrypeScanReport].(*GrypeConfig); !ok {
+		t.Fatalf("want: %s, got: %T", "*GrypeScanReport", config.Declared()[TypeGrypeScanReport])
+	}
+}
+
 func TestConfigReadWriter_Decode(t *testing.T) {
 
 	testTable := []struct {

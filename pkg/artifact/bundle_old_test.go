@@ -22,9 +22,8 @@ func TestNewBundleOld(t *testing.T) {
 		bun.Generic["random.file"],
 	}
 	for _, v := range testables {
-		if len(v.DigestString()) != 64 {
-			t.Log(bun)
-			t.Fatal(v)
+		if len(v.Digest) != 32 {
+			t.Fatalf("want: Digest length of 32 bytes, got: %d %s", len(v.Digest), v.DigestString())
 		}
 	}
 

@@ -53,14 +53,6 @@ func TestNewArtifact2(t *testing.T) {
 
 }
 
-func TestWorkspace(t *testing.T) {
-	configArtifact, err := NewArtifact("config file", bytes.NewReader(MustReadFile("../../test/gatecheck.yaml", t.Fatal)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Log(configArtifact)
-}
-
 func TestValidateGitleaks(t *testing.T) {
 	gitleaksFile := MustReadFile("../../test/gitleaks-report.json", t.Fatal)
 
@@ -206,8 +198,8 @@ func TestNewArtifact(t *testing.T) {
 		t.Fatal("Expected content length of 1,000")
 	}
 
-	if len(artifact.DigestString()) != 64 {
-		t.Fatal("expected Digest length of 64 bytes")
+	if len(artifact.Digest) != 32 {
+		t.Fatalf("want: Digest length of 32 bytes, got: %d %s", len(artifact.Digest), artifact.DigestString())
 	}
 
 	if _, err := NewArtifact("bad", badReadWriter{}); err == nil {
