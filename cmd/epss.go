@@ -1,14 +1,13 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"time"
 
 	"github.com/gatecheckdev/gatecheck/internal/log"
-	"github.com/gatecheckdev/gatecheck/pkg/artifact"
+	"github.com/gatecheckdev/gatecheck/pkg/artifacts/grype"
 	"github.com/gatecheckdev/gatecheck/pkg/epss"
 	"github.com/spf13/cobra"
 )
@@ -40,16 +39,16 @@ func NewEPSSCmd(service EPSSService) *cobra.Command {
 		Short: "Query first.org for Exploit Prediction Scoring System (EPSS)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			var grypeScan artifact.GrypeScanReport
 			var csvFile *os.File
 			var err error
 
 			csvFilename, _ := cmd.Flags().GetString("file")
 
-			f, err := os.Open(args[0])
+			grypeFile, err := os.Open(args[0])
 			if err != nil {
 				return fmt.Errorf("%w: %v", ErrorFileAccess, err)
 			}
+
 			if csvFilename != "" {
 				csvFile, err = os.Open(csvFilename)
 				if err != nil {
@@ -57,9 +56,13 @@ func NewEPSSCmd(service EPSSService) *cobra.Command {
 				}
 			}
 
-			if err := json.NewDecoder(f).Decode(&grypeScan); err != nil {
+			r, err := grype.NewReportDecoder().DecodeFrom(grypeFile)
+
+			if err != nil {
 				return fmt.Errorf("%w: %v", ErrorEncoding, err)
 			}
+
+			grypeScan := r.(*grype.ScanReport)
 
 			cves := make([]epss.CVE, len(grypeScan.Matches))
 

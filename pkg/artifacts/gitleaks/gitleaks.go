@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 
 	"github.com/gatecheckdev/gatecheck/internal/log"
 	gce "github.com/gatecheckdev/gatecheck/pkg/encoding"
@@ -14,7 +15,7 @@ import (
 
 const ReportType = "Gitleaks Scan Report"
 const ConfigType = "Gitleaks Config"
-const FieldName = "gitleaks"
+const ConfigFieldName = "gitleaks"
 
 type Finding report.Finding
 
@@ -29,16 +30,33 @@ func (r ScanReport) String() string {
 	return table.String()
 }
 
-func NewGitleaksReportDecoder() *gitleaksReportDecoder {
-	return new(gitleaksReportDecoder)
+type Config struct {
+	Required       bool `yaml:"required" json:"required"`
+	SecretsAllowed bool `yaml:"secretsAllowed" json:"secretsAllowed"`
+}
+
+func NewValidator() *gcv.Validator[ScanReport, Config] {
+	return gcv.NewValidator[ScanReport, Config](ConfigFieldName, NewReportDecoder(), validateFunc)
+}
+
+func NewReportDecoder() *ReportDecoder {
+	return new(ReportDecoder)
 }
 
 // Gitleaks reports are just an array of findings. No findings is '[]' literally
-type gitleaksReportDecoder struct {
+type ReportDecoder struct {
 	bytes.Buffer
 }
 
-func (d *gitleaksReportDecoder) Decode() (any, error) {
+func (d *ReportDecoder) DecodeFrom(r io.Reader) (any, error) {
+	_, err := d.ReadFrom(r)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", gce.ErrIO, err)
+	}
+	return d.Decode()
+}
+
+func (d *ReportDecoder) Decode() (any, error) {
 	if d == nil {
 		return nil, fmt.Errorf("%w: %v", gce.ErrEncoding, "decoder buffer is nil")
 	}
@@ -62,39 +80,11 @@ func (d *gitleaksReportDecoder) Decode() (any, error) {
 	return &obj, nil
 }
 
-func (d *gitleaksReportDecoder) FileType() string {
+func (d *ReportDecoder) FileType() string {
 	return ReportType
 }
 
-type OuterConfig struct {
-	Gitleaks *Config `json:"gitleaks,omitempty" yaml:"gitleaks,omitempty"`
-}
-
-type Config struct {
-	Required       bool `yaml:"required" json:"required"`
-	SecretsAllowed bool `yaml:"secretsAllowed" json:"secretsAllowed"`
-}
-
-func NewConfigDecoder() *gce.YAMLWriterDecoder[OuterConfig] {
-	return gce.NewYAMLWriterDecoder[OuterConfig](ConfigType, checkConfig)
-}
-
-func checkConfig(config *OuterConfig) error {
-	if config == nil {
-		return fmt.Errorf("%w: no config file", gce.ErrFailedCheck)
-	}
-	if config.Gitleaks == nil {
-		return fmt.Errorf("%w: No gitleaks configuration found", gce.ErrFailedCheck)
-	}
-	return nil
-}
-
-func validateFunc(scanReport ScanReport, outer OuterConfig) error {
-	config := outer.Gitleaks
-	if config == nil {
-		return fmt.Errorf("%w: No gitleaks configuration provided", gcv.ErrValidation)
-	}
-
+func validateFunc(scanReport ScanReport, config Config) error {
 	if len(scanReport) == 0 {
 		return nil
 	}

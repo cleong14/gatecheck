@@ -13,6 +13,7 @@ import (
 
 const ReportType = "Semgrep Scan Report"
 const ConfigType = "Semgrep Config"
+const ConfigFieldName = "semgrep"
 
 // ScanReport is a data model for a Semgrep Output scan produced by `semgrep scan --json`
 type ScanReport semgrep.SemgrepOutputV1Jsonschema
@@ -38,22 +39,12 @@ func (r ScanReport) String() string {
 	return table.String()
 }
 
-func NewSemgrepReportDecoder() *gce.JSONWriterDecoder[ScanReport] {
+func NewReportDecoder() *gce.JSONWriterDecoder[ScanReport] {
 	return gce.NewJSONWriterDecoder[ScanReport](ReportType, checkSemgrep)
 }
 
-func NewConfigDecoder() *gce.YAMLWriterDecoder[OuterConfig] {
-	return gce.NewYAMLWriterDecoder[OuterConfig](ConfigType, checkConfig)
-}
-
-func checkConfig(config *OuterConfig) error {
-	if config == nil {
-		return gce.ErrFailedCheck
-	}
-	if config.Semgrep == nil {
-		return gce.ErrFailedCheck
-	}
-	return nil
+func NewValidator() *gcv.Validator[ScanReport, Config] {
+	return gcv.NewValidator[ScanReport, Config](ConfigFieldName, NewReportDecoder(), validateFunc)
 }
 
 func checkSemgrep(report *ScanReport) error {
@@ -72,10 +63,6 @@ func checkSemgrep(report *ScanReport) error {
 	return nil
 }
 
-type OuterConfig struct {
-	Semgrep *Config `json:"semgrep,omitempty" yaml:"semgrep,omitempty"`
-}
-
 type Config struct {
 	Required bool `yaml:"required" json:"required"`
 	Info     int  `yaml:"info" json:"info"`
@@ -83,11 +70,7 @@ type Config struct {
 	Error    int  `yaml:"error" json:"error"`
 }
 
-func validateFunc(scanReport ScanReport, outer OuterConfig) error {
-	config := outer.Semgrep
-	if config == nil {
-		return fmt.Errorf("%w: No semgrep configuration provided", gcv.ErrValidation)
-	}
+func validateFunc(scanReport ScanReport, config Config) error {
 	allowed := map[string]int{"INFO": config.Info, "WARNING": config.Warning, "ERROR": config.Error}
 	found := map[string]int{"INFO": 0, "WARNING": 0, "ERROR": 0}
 

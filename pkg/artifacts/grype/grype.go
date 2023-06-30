@@ -17,7 +17,7 @@ const ConfigFieldName = "grype"
 
 type ScanReport models.Document
 
-func (r ScanReport) String() string {
+func (r *ScanReport) String() string {
 	table := new(gcs.Table).WithHeader("Severity", "Package", "Version", "Link")
 
 	for _, item := range r.Matches {
@@ -47,20 +47,6 @@ type Config struct {
 	Unknown    int        `yaml:"unknown"    json:"unknown"`
 }
 
-type ConfigOld struct {
-	Grype *struct {
-		AllowList  []ListItem `yaml:"allowList,omitempty" json:"allowList,omitempty"`
-		DenyList   []ListItem `yaml:"denyList,omitempty" json:"denyList,omitempty"`
-		Required   bool       `yaml:"required" json:"required"`
-		Critical   int        `yaml:"critical"   json:"critical"`
-		High       int        `yaml:"high"       json:"high"`
-		Medium     int        `yaml:"medium"     json:"medium"`
-		Low        int        `yaml:"low"        json:"low"`
-		Negligible int        `yaml:"negligible" json:"negligible"`
-		Unknown    int        `yaml:"unknown"    json:"unknown"`
-	} `json:"grype,omitempty" yaml:"grype,omitempty"`
-}
-
 type ListItem struct {
 	Id     string `yaml:"id"     json:"id"`
 	Reason string `yaml:"reason" json:"reason"`
@@ -70,22 +56,8 @@ func NewReportDecoder() *gce.JSONWriterDecoder[ScanReport] {
 	return gce.NewJSONWriterDecoder[ScanReport](ReportType, checkReport)
 }
 
-func NewConfigDecoder_old() *gce.YAMLWriterDecoder[ConfigOld] {
-	return gce.NewYAMLWriterDecoder[ConfigOld](ConfigType, checkConfig)
-}
-
-func NewConfigDecoder() *gce.MapDecoder[Config] {
-	return gce.NewMapDecoder[Config](ConfigType, ConfigFieldName)
-}
-
-func checkConfig(config *ConfigOld) error {
-	if config == nil {
-		return gce.ErrFailedCheck
-	}
-	if config.Grype == nil {
-		return gce.ErrFailedCheck
-	}
-	return nil
+func NewValidator() *gcv.Validator[ScanReport, Config] {
+	return gcv.NewValidator[ScanReport, Config](ConfigFieldName, NewReportDecoder(), validateFunc)
 }
 
 func checkReport(report *ScanReport) error {
@@ -98,15 +70,8 @@ func checkReport(report *ScanReport) error {
 	return nil
 }
 
-func NewValidator() *gcv.Validator[ScanReport, ConfigOld] {
-	return gcv.NewValidator[ScanReport, ConfigOld](validateFunc).WithDecoders(NewReportDecoder(), NewConfigDecoder_old())
-}
+func validateFunc(scanReport ScanReport, config Config) error {
 
-func validateFunc(scanReport ScanReport, c ConfigOld) error {
-	config := c.Grype
-	if config == nil {
-		return fmt.Errorf("%w: No grype configuration provided", gcv.ErrValidation)
-	}
 	found := map[string]int{"Critical": 0, "High": 0, "Medium": 0, "Low": 0, "Negligible": 0, "Unknown": 0}
 	allowed := map[string]int{
 		"Critical": config.Critical, "High": config.High, "Medium": config.Medium,

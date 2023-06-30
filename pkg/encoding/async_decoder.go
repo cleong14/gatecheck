@@ -20,6 +20,12 @@ type AsyncDecoder struct {
 	fileType string
 }
 
+func NewAsyncDecoder(decs ...WriterDecoder) *AsyncDecoder {
+	decoder := new(AsyncDecoder)
+	decoder.decoders = decs
+	return decoder
+}
+
 func (d *AsyncDecoder) WithDecoders(decs ...WriterDecoder) *AsyncDecoder {
 	d.decoders = decs
 	return d

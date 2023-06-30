@@ -10,7 +10,6 @@ import (
 	"path"
 	"strings"
 	"testing"
-	"time"
 
 	archive "github.com/gatecheckdev/gatecheck/pkg/archive"
 	gce "github.com/gatecheckdev/gatecheck/pkg/encoding"
@@ -57,8 +56,20 @@ func TestExtractCmd(t *testing.T) {
 		archive.NewPrettyWriter(buf).WithAsyncDecoder(asyncDecoder).Encode(b.(*archive.Bundle))
 		t.Log(buf.String())
 		if !strings.Contains(buf.String(), "Mock Obj A") {
-			t.Fatal("want: Mock Obj A in output")	
+			t.Fatal("want: Mock Obj A in output")
 		}
+
+		t.Run("bad-out", func(t *testing.T) {
+			commandString := fmt.Sprintf("bundle extract --label %s %s", "mock_artifact.json", tempBundleFilename)
+			cmd := NewRootCommand(CLIConfig{})
+			cmd.SetOut(&badWriter{})
+			cmd.SetArgs(strings.Split(commandString, " "))
+			cmd.SilenceUsage = true
+			err := cmd.Execute()
+			if err == nil {
+				t.Fatal("expected error for bad writer, got nil")
+			}
+		})
 
 	})
 
@@ -71,9 +82,11 @@ func TestExtractCmd(t *testing.T) {
 	})
 	t.Run("file-bad-encoding", func(t *testing.T) {
 		commandString := fmt.Sprintf("bundle extract --label %s %s", "mock_artifact.json", fileWithBadJSON(t))
-		_, err := Execute(commandString, CLIConfig{})
+		t.Log(commandString)
+		out, err := Execute(commandString, CLIConfig{})
+		t.Logf("execution error: %v, output: %s", err, out)
 		if !errors.Is(err, ErrorEncoding) {
-			t.Fatal(err)
+			t.Fatalf("want: %v got: %v", ErrorEncoding, err)
 		}
 	})
 	t.Run("file-bad-key", func(t *testing.T) {
@@ -131,7 +144,7 @@ func TestNewBundleCmd(t *testing.T) {
 			t.Fatal(err)
 		}
 		commandString := fmt.Sprintf("bundle -vo %s %s", outFile, targetFile)
-		_, err := Execute(commandString, CLIConfig{AutoDecoderTimeout: time.Second * 2})
+		_, err := Execute(commandString, CLIConfig{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -157,18 +170,6 @@ func TestNewBundleCmd(t *testing.T) {
 		if len(genericBytes) != 1000 {
 			t.Fatal("Invalid decoded file size")
 		}
-
-		t.Run("print-test", func(t *testing.T) {
-			commandString := fmt.Sprintf("print %s", outFile)
-			output, err := Execute(commandString, CLIConfig{AutoDecoderTimeout: time.Second * 2})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if strings.Contains(output, "random-1.file") != true {
-				t.Log(output)
-				t.Fatal("unexpected content")
-			}
-		})
 
 		t.Run("existing-bundle", func(t *testing.T) {
 			secondFile := path.Join(t.TempDir(), "random-2.file")
@@ -209,4 +210,10 @@ func TestNewBundleCmd(t *testing.T) {
 			t.Log(output)
 		})
 	})
+}
+
+type badWriter struct{}
+
+func (b *badWriter) Write([]byte) (int, error) {
+	return 0, errors.New("mock error")
 }

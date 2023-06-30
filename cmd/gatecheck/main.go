@@ -13,9 +13,14 @@ import (
 
 	"github.com/gatecheckdev/gatecheck/cmd"
 	"github.com/gatecheckdev/gatecheck/internal/log"
+	"github.com/gatecheckdev/gatecheck/pkg/artifacts/gitleaks"
+	"github.com/gatecheckdev/gatecheck/pkg/artifacts/grype"
+	"github.com/gatecheckdev/gatecheck/pkg/artifacts/semgrep"
+	gce "github.com/gatecheckdev/gatecheck/pkg/encoding"
 	"github.com/gatecheckdev/gatecheck/pkg/epss"
 	"github.com/gatecheckdev/gatecheck/pkg/export/aws"
 	"github.com/gatecheckdev/gatecheck/pkg/export/defectdojo"
+	gcv "github.com/gatecheckdev/gatecheck/pkg/validate"
 )
 
 const ExitSystemFail int = -1
@@ -99,6 +104,22 @@ func main() {
 
 	os.Exit(ExitOk)
 }
+
+func AsyncDecoderFunc() cmd.AsyncDecoder {
+	decoder := new(gce.AsyncDecoder).WithDecoders(
+		grype.NewReportDecoder(),
+		semgrep.NewReportDecoder(),
+		gitleaks.NewReportDecoder(),
+	)
+
+	return decoder
+}
+
+// func ValidatorFuc(obj any, objConfig any) cmd.AnyValidator {
+// 	switch obj.(type) {
+// 	case 
+// 	}
+// }
 
 // PipeInput checks for input from a Linux Pipe ex. 'cat grype-report.json | gatecheck print'
 func PipeInput() bool {

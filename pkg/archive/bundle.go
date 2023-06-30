@@ -12,13 +12,14 @@ import (
 	"strings"
 
 	"github.com/dustin/go-humanize"
-	gcc "github.com/gatecheckdev/gatecheck/pkg/artifacts/config"
 	gce "github.com/gatecheckdev/gatecheck/pkg/encoding"
 	gcs "github.com/gatecheckdev/gatecheck/pkg/strings"
 	gcv "github.com/gatecheckdev/gatecheck/pkg/validate"
+	"gopkg.in/yaml.v3"
 )
 
 const SupportedConfigVersion = "1.0.0"
+const BundleFileType = "Gatecheck Bundle"
 
 type FileType string
 
@@ -31,8 +32,8 @@ type AnyDecoder interface {
 }
 
 type AnyValidator interface {
-	Validate(any, any) error
-	ValidateFrom(io.Reader, io.Reader) error
+	Validate(objPtr any, configReader io.Reader) error
+	ValidateFrom(objReader io.Reader, configReader io.Reader) error
 }
 
 type Bundle struct {
@@ -109,6 +110,10 @@ type Decoder struct {
 	bytes.Buffer
 }
 
+func NewDecoder() *Decoder {
+	return new(Decoder)
+}
+
 func (d *Decoder) DecodeFrom(r io.Reader) (any, error) {
 	_, err := d.ReadFrom(r)
 	if err != nil {
@@ -118,18 +123,32 @@ func (d *Decoder) DecodeFrom(r io.Reader) (any, error) {
 	return d.Decode()
 }
 
+func(d *Decoder) FileType() string {
+	return BundleFileType
+}
+
 func (d *Decoder) Decode() (any, error) {
 	reader, writer := io.Pipe()
+	errChan := make(chan struct{ err error })
 
 	go func() {
 		defer writer.Close()
-		gzipReader, _ := gzip.NewReader(d)
+		gzipReader, err := gzip.NewReader(d)
+		if err != nil {
+			errChan <- struct{ err error }{err: fmt.Errorf("gzip decoding failed: %w", err)}
+			return
+		}
+		errChan <- struct{ err error }{err: err}
 		_, _ = io.Copy(writer, gzipReader)
 	}()
 
+	gzipErr := <-errChan
+	if gzipErr.err != nil {
+		return nil, gzipErr.err
+	}
+
 	bundle := NewBundle()
 	err := gob.NewDecoder(reader).Decode(bundle)
-
 	return bundle, err
 }
 
@@ -158,19 +177,18 @@ func (r *Encoder) Encode(b *Bundle) error {
 	return nil
 }
 
-
 type ArtifactValidator struct {
 	validator AnyValidator
 	fileType  FileType
-	fieldName gcc.FieldName
+	fieldName string
 }
 
 func NewArtifactValidator(fileType string, fieldName string, validator AnyValidator) *ArtifactValidator {
-	return &ArtifactValidator{fileType: FileType(fileType), fieldName: gcc.FieldName(fieldName), validator: validator}
+	return &ArtifactValidator{fileType: FileType(fileType), fieldName: fieldName, validator: validator}
 }
 
-func (v *ArtifactValidator) Validate(obj any, config any) error {
-	return v.validator.Validate(obj, config)
+func (v *ArtifactValidator) Validate(objPtr any, configReader io.Reader) error {
+	return v.validator.Validate(objPtr, configReader)
 }
 func (v *ArtifactValidator) ValidateFrom(objReader io.Reader, configReader io.Reader) error {
 	return v.validator.ValidateFrom(objReader, configReader)
@@ -178,23 +196,18 @@ func (v *ArtifactValidator) ValidateFrom(objReader io.Reader, configReader io.Re
 
 type Validator struct {
 	bundleDecoder *Decoder
-	configDecoder *gcc.Decoder
 	validators    []*ArtifactValidator
 	asyncDecoder  AnyDecoder
 }
 
 func NewValidator(validators []*ArtifactValidator, asyncDecoder AnyDecoder) *Validator {
-	return &Validator{bundleDecoder: new(Decoder), configDecoder: new(gcc.Decoder), validators: validators, asyncDecoder: asyncDecoder}
+	return &Validator{bundleDecoder: new(Decoder), validators: validators, asyncDecoder: asyncDecoder}
 }
 
-func (v *Validator) Validate(obj any, config any) error {
-	bundle, ok := obj.(*Bundle)
+func (v *Validator) Validate(objPtr any, configReader io.Reader) error {
+	bundle, ok := objPtr.(*Bundle)
 	if !ok {
-		return fmt.Errorf("%w: obj is %T", gce.ErrIO, obj)
-	}
-	gcConfig, ok := config.(*gcc.Config)
-	if !ok {
-		return fmt.Errorf("%w: config is %T", gce.ErrIO, config)
+		return fmt.Errorf("%w: obj is %T", gce.ErrIO, objPtr)
 	}
 
 	type artifactWithMetadata struct {
@@ -213,7 +226,16 @@ func (v *Validator) Validate(obj any, config any) error {
 
 	validationErrors := make(map[string]error)
 
-	for fieldName, configArtifact := range gcConfig.Artifacts {
+	configBytes, err := io.ReadAll(configReader)
+	if err != nil {
+		return fmt.Errorf("%w: %v", gcv.ErrConfig, err)
+	}
+
+	configMap := make(map[string]any)
+
+	_ = yaml.NewDecoder(bytes.NewReader(configBytes)).Decode(configMap)
+
+	for fieldName := range configMap {
 		for _, validator := range v.validators {
 			if fieldName != validator.fieldName {
 				continue
@@ -222,15 +244,12 @@ func (v *Validator) Validate(obj any, config any) error {
 				if validator.fileType != bundleArtifact.fileType {
 					continue
 				}
-				err := validator.Validate(bundleArtifact.object, configArtifact)
+				err := validator.Validate(bundleArtifact.object, bytes.NewReader(configBytes))
 				if err != nil {
 					validationErrors[bundleLabel] = err
 				}
 			}
 		}
-	}
-	if len(decodedArtifacts) == 0 {
-		return nil
 	}
 	returnErrors := []error{}
 
@@ -238,9 +257,12 @@ func (v *Validator) Validate(obj any, config any) error {
 		returnErrors = append(returnErrors, fmt.Errorf("[%s]: %w", label, err))
 	}
 
-	err := errors.Join(returnErrors...)
+	err = errors.Join(returnErrors...)
+	if err != nil {
+		return fmt.Errorf("%w: %v", gcv.ErrValidation, err)
+	}
 
-	return fmt.Errorf("%w: %v", gcv.ErrValidation, err)
+	return nil
 }
 
 func (v *Validator) ValidateFrom(objReader io.Reader, configReader io.Reader) error {
@@ -248,10 +270,6 @@ func (v *Validator) ValidateFrom(objReader io.Reader, configReader io.Reader) er
 	if err != nil {
 		return fmt.Errorf("%w: object is not a Gatecheck bundle", gce.ErrIO)
 	}
-	config, err := v.configDecoder.DecodeFrom(objReader)
-	if err != nil {
-		return fmt.Errorf("%w: object is not a Gatecheck config", gce.ErrIO)
-	}
 
-	return v.Validate(bundle, config)
+	return v.Validate(bundle, configReader)
 }

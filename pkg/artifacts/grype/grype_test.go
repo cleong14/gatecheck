@@ -1,114 +1,94 @@
 package grype
 
 import (
+	"bytes"
+	"errors"
 	"os"
+	"strings"
 	"testing"
 
+	"github.com/anchore/grype/grype/presenter/models"
+	gce "github.com/gatecheckdev/gatecheck/pkg/encoding"
+	gcv "github.com/gatecheckdev/gatecheck/pkg/validate"
 	"gopkg.in/yaml.v3"
 )
 
-func TestConfigDecoder(t *testing.T) {
-	config := Config{Required: true, Critical: 1, High: 10}
-	decoder := NewConfigDecoder()
-	_ = yaml.NewEncoder(decoder).Encode(map[string]any{ConfigFieldName: config})
-	c, err := decoder.Decode()
+const GrypeTestReport string = "../../../test/grype-report.json"
+
+func TestEncoding_success(t *testing.T) {
+	obj, err := NewReportDecoder().DecodeFrom(MustOpen(GrypeTestReport, t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	decodedConfig, ok := c.(Config)
+	grypeReport, ok := obj.(*ScanReport)
 	if !ok {
-		t.Fatalf("got: %T", c)
+		t.Fatalf("want: *ScanReport got: %T", obj)
+	}
+	if len(grypeReport.Matches) < 10 {
+		t.Fatalf("want: <10 got: %d", len(grypeReport.Matches))
 	}
 
-	if decodedConfig.Required != config.Required {
-		t.Fatalf("want: required == true")
+	t.Log(grypeReport.String())
+	if !strings.Contains(grypeReport.String(), "curl") {
+		t.Fatal("'curl' should exist in string")
 	}
-	if decodedConfig.Critical != config.Critical {
-		t.Fatalf("want: %d got: %d", config.Critical, decodedConfig.Critical)
-	}
-	if decodedConfig.High != 10 {
-		t.Fatalf("want: %d got: %d", config.High, decodedConfig.High)
-	}
-	t.Logf("%+v\n",decodedConfig)
 }
 
-// func TestConfigDecoder(t *testing.T) {
-// 	config := &OuterConfig{Grype: &ConfigOld{Required: true, Critical: 1, High: 1}}
-//
-// 	buf := new(bytes.Buffer)
-// 	_ = yaml.NewEncoder(buf).Encode(config)
-//
-// 	decoder := NewConfigDecoder_old()
-// 	_, _ = decoder.ReadFrom(buf)
-// 	c, err := decoder.Decode()
-// 	if err != nil {
-// 		t.Fatal(err)
-// 	}
-// 	decodedConfig, ok := c.(*OuterConfig)
-// 	if !ok {
-// 		t.Fatalf("want: *OuterConfig, got: %T", c)
-// 	}
-// 	if decodedConfig.Grype.Critical != 1 {
-// 		t.Fatalf("want: grype config == 1, got: %d", decodedConfig.Grype.Critical)
-// 	}
-// 	t.Logf("%+v", *decodedConfig.Grype)
-// }
-//
-// func TestAnonConfigDecoder(t *testing.T) {
-// 	anonConfig := struct {
-// 		Grype   *ConfigOld     `yaml:"grype,omitempty"`
-// 		Semgrep *MockConfig `yaml:"mock,omitempty"`
-// 	}{Grype: &ConfigOld{Required: true, Critical: 1, High: 1}}
-//
-// 	buf := new(bytes.Buffer)
-// 	_ = yaml.NewEncoder(buf).Encode(anonConfig)
-//
-// 	decoder := NewConfigDecoder_old()
-// 	_, _ = decoder.ReadFrom(buf)
-// 	c, err := decoder.Decode()
-// 	if err != nil {
-// 		t.Fatal(err)
-// 	}
-// 	decodedConfig, ok := c.(*OuterConfig)
-// 	if !ok {
-// 		t.Fatalf("want: *OuterConfig, got: %T", c)
-// 	}
-// 	if decodedConfig.Grype.Critical != 1 {
-// 		t.Fatalf("want: grype config == 1, got: %d", decodedConfig.Grype.Critical)
-// 	}
-// 	t.Logf("%+v", *decodedConfig.Grype)
-// }
-//
-// func TestAsyncDecoder_Grype(t *testing.T) {
-// 	grypeBytes := MustReadFile("../../../test/grype-report.json", t.Fatal)
-//
-// 	decoder := new(gce.AsyncDecoder).WithDecoders(NewReportDecoder())
-//
-// 	_, err := decoder.ReadFrom(bytes.NewReader(grypeBytes))
-// 	if err != nil {
-// 		t.Fatal(err)
-// 	}
-// 	a, err := decoder.Decode(context.Background())
-// 	if err != nil {
-// 		t.Fatal(err)
-// 	}
-//
-// 	t.Logf("%+v", a.(*ScanReport).Descriptor)
-// 	t.Log(decoder.FileType())
-// }
-//
-// func TestCheckConfig(t *testing.T) {
-// 	if err := checkConfig(nil); !errors.Is(err, gce.ErrFailedCheck) {
-// 		t.Fatal("want: failed check error got:", err)
-// 	}
-// 	if err := checkConfig(&OuterConfig{Grype: nil}); !errors.Is(err, gce.ErrFailedCheck) {
-// 		t.Fatal("want: failed check error got:", err)
-// 	}
-// 	config := ConfigOld{Critical: 0, High: 0}
-// 	if err := checkConfig(&OuterConfig{Grype: &config}); err != nil {
-// 		t.Fatalf("want: nil got: %v",err)
-// 	}
-// }
+func TestValidation_success(t *testing.T) {
+	grypeFile := MustOpen(GrypeTestReport, t)
+	configMap := map[string]Config{ConfigFieldName: {
+		Critical: 0,
+		High:     0,
+	}}
+
+	encodedConfig := new(bytes.Buffer)
+	_ = yaml.NewEncoder(encodedConfig).Encode(configMap)
+
+	err := NewValidator().ValidateFrom(grypeFile, encodedConfig)
+	if !errors.Is(err, gcv.ErrValidation) {
+		t.Fatalf("want: %v got: %v", gcv.ErrValidation, err)
+	}
+}
+
+func TestCheckReport(t *testing.T) {
+	if err := checkReport(nil); !errors.Is(err, gce.ErrFailedCheck) {
+		t.Fatalf("want: %v got: %v", gce.ErrFailedCheck, err)
+	}
+	if err := checkReport(&ScanReport{}); !errors.Is(err, gce.ErrFailedCheck) {
+		t.Fatalf("want: %v got: %v", gce.ErrFailedCheck, err)
+	}
+
+}
+
+func TestValidateFunc(t *testing.T) {
+	reportOne := ScanReport{}
+	reportOne.Matches = append(reportOne.Matches, models.Match{Vulnerability: models.Vulnerability{
+		VulnerabilityMetadata: models.VulnerabilityMetadata{ID: "abc-123", Severity: "Critical"},
+	}})
+
+	testTable := []struct {
+		label   string
+		report  ScanReport
+		config  Config
+		wantErr error
+	}{
+		{label: "no-matches", report: ScanReport{}, config: Config{}, wantErr: nil},
+		{label: "critical-found-allowed", report: reportOne, config: Config{Critical: -1}, wantErr: nil},
+		{label: "critical-found-not-allowed", report: reportOne, config: Config{Critical: 0}, wantErr: gcv.ErrValidation},
+		{label: "critical-found-allowed-denylist", report: reportOne,
+			config: Config{Critical: -1, DenyList: []ListItem{{Id: "abc-123", Reason: "mock reason"}}}, wantErr: gcv.ErrValidation},
+		{label: "critical-found-not-allowed-allowlist", report: reportOne,
+			config: Config{Critical: 0, AllowList: []ListItem{{Id: "abc-123", Reason: "mock reason"}}}, wantErr: nil},
+	}
+
+	for _, testCase := range testTable {
+		t.Run(testCase.label, func(t *testing.T) {
+			if err := validateFunc(testCase.report, testCase.config); !errors.Is(err, testCase.wantErr) {
+				t.Fatalf("want: %v got: %v", testCase.wantErr, err)
+			}
+		})
+	}
+}
 
 func MustReadFile(filename string, fatalFunc func(args ...any)) []byte {
 	fileBytes, err := os.ReadFile(filename)
@@ -118,7 +98,10 @@ func MustReadFile(filename string, fatalFunc func(args ...any)) []byte {
 	return fileBytes
 }
 
-type MockConfig struct {
-	High int `yaml:"high"`
-	Low  int `yaml:"low"`
+func MustOpen(filename string, t *testing.T) *os.File {
+	f, err := os.Open(filename)
+	if err != nil {
+		t.Fatalf("test setup failure: %v", err)
+	}
+	return f
 }

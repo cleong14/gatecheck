@@ -26,7 +26,7 @@ test: install_deps
 
 coverage:
 	$(info ******************** running test coverage ********************)
-	go test -coverprofile cover.out ./...
+	go test -coverprofile cover.cov ./...
 
 
 install_deps:

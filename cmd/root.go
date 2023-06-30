@@ -36,17 +36,28 @@ type AWSExportService interface {
 	Export(context.Context, io.Reader, string) error
 }
 
+type AsyncDecoder interface {
+	io.Writer
+	Decode() (any, error)
+	DecodeFrom(r io.Reader) (any, error)
+	FileType() string
+	Reset()
+}
+
+
+
 type CLIConfig struct {
-	AutoDecoderTimeout time.Duration
-	Version            string
-	PipedInput         *os.File
-	DefaultReport      string
-	EPSSService        EPSSService
-	DDExportService    DDExportService
-	DDEngagement       defectdojo.EngagementQuery
-	DDExportTimeout    time.Duration
-	AWSExportService   AWSExportService
-	AWSExportTimeout   time.Duration
+	Version             string
+	PipedInput          *os.File
+	DefaultReport       string
+	EPSSService         EPSSService
+	DDExportService     DDExportService
+	DDEngagement        defectdojo.EngagementQuery
+	DDExportTimeout     time.Duration
+	AWSExportService    AWSExportService
+	AWSExportTimeout    time.Duration
+	NewAsyncDecoderFunc func() AsyncDecoder
+	NewValidatorFunc    func() AnyValidator
 }
 
 func NewRootCommand(config CLIConfig) *cobra.Command {
@@ -64,14 +75,15 @@ func NewRootCommand(config CLIConfig) *cobra.Command {
 
 	// Commands
 	command.AddCommand(NewVersionCmd(config.Version))
-	command.AddCommand(NewPrintCommand(config.AutoDecoderTimeout, config.PipedInput))
+	command.AddCommand(NewPrintCommand(config.PipedInput, config.NewAsyncDecoderFunc))
 	command.AddCommand(NewConfigCmd(), NewBundleCmd())
-	command.AddCommand(NewValidateCmd(config.AutoDecoderTimeout))
+	command.AddCommand(NewValidateCmd(config.NewAsyncDecoderFunc))
 	command.AddCommand(NewEPSSCmd(config.EPSSService))
 	command.AddCommand(
 		NewExportCmd(
 			config.DDExportService,
 			config.DDExportTimeout,
+			config.NewAsyncDecoderFunc,
 			config.DDEngagement,
 			config.AWSExportService,
 			config.AWSExportTimeout,

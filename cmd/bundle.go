@@ -35,12 +35,9 @@ func NewBundleCmd() *cobra.Command {
 				return fmt.Errorf("%w: %v", ErrorEncoding, err)
 			}
 
-			artifactBytes, ok := bundle.(*archive.Bundle).Artifacts[label]
-			if !ok {
-				return fmt.Errorf("%w: '%s' not found in bundle '%s'", ErrorUserInput, label, args[0])
-			}
+			artifactBytes := bundle.(*archive.Bundle).Artifacts[label]
 
-			n, err := io.Copy(os.Stdout, bytes.NewReader(artifactBytes))
+			n, err := io.Copy(cmd.OutOrStdout(), bytes.NewReader(artifactBytes))
 			log.Infof("%d bytes written to STDOUT", n)
 
 			return err
@@ -79,6 +76,10 @@ func NewBundleCmd() *cobra.Command {
 				}
 				bundle = decodedBundle.(*archive.Bundle)
 				log.Info("Successful bundle decode, new files will be added to existing bundle")
+			}
+			
+			if bundle == nil {
+				bundle = archive.NewBundle()
 			}
 
 			// Open each file, create a bundle artifact and add it to the bundle object

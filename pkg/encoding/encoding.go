@@ -47,50 +47,6 @@ func (d *JSONWriterDecoder[T]) FileType() string {
 	return d.fileType
 }
 
-type MapDecoder[T any] struct {
-	bytes.Buffer
-	declaredReader io.Reader
-	fileType       string
-	fieldName      string
-}
-
-func (d *MapDecoder[T]) DecodeFrom(r io.Reader) (any, error) {
-	_, err := d.ReadFrom(r)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrIO, err)
-	}
-	return d.Decode()
-}
-
-func (d *MapDecoder[T]) Decode() (any, error) {
-	m := make(map[string]any)
-	err := yaml.NewDecoder(d).Decode(m)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrEncoding, err)
-	}
-	subM, ok := m[d.fieldName]
-	if !ok {
-		return nil, fmt.Errorf("%w: field name '%s' not found", ErrEncoding, d.fieldName)
-	}
-
-	// Can't error, verified through decoding
-	_ = yaml.NewEncoder(d).Encode(subM)
-	obj := new(T)
-	err = yaml.NewDecoder(d).Decode(obj)
-	return *obj, err
-}
-
-func (d *MapDecoder[_]) FileType() string {
-	return d.fileType
-}
-func (d *MapDecoder[_]) FieldName() string {
-	return d.fieldName
-}
-
-func NewMapDecoder[T any](fileType string, fieldName string) *MapDecoder[T] {
-	return &MapDecoder[T]{fileType: fileType, fieldName: fieldName}
-}
-
 type YAMLWriterDecoder[T any] struct {
 	bytes.Buffer
 	checkFunc func(*T) error

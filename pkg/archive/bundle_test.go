@@ -3,12 +3,13 @@ package bundle
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"testing"
 
-	gcc "github.com/gatecheckdev/gatecheck/pkg/artifacts/config"
 	gce "github.com/gatecheckdev/gatecheck/pkg/encoding"
 	gcv "github.com/gatecheckdev/gatecheck/pkg/validate"
+	"gopkg.in/yaml.v3"
 )
 
 func TestBundleEncoding(t *testing.T) {
@@ -17,9 +18,8 @@ func TestBundleEncoding(t *testing.T) {
 	bundle.Artifacts["two"] = []byte("content two")
 
 	buf := new(bytes.Buffer)
-	reader := new(Encoder)
-	reader.Encode(bundle)
-	reader.WriteTo(buf)
+
+	_ = NewEncoder(buf).Encode(bundle)
 
 	writer := new(Decoder)
 	writer.ReadFrom(buf)
@@ -66,15 +66,7 @@ func TestBundlePrettyEncoding(t *testing.T) {
 	})
 }
 
-func TestMockValidator(t *testing.T) {
-
-	objOne := &objA{ValueA: 5, Description: "object a"}
-	configOne := &configA{ValueA: 10}
-	err := objAValidator().Validate(objOne, configOne)
-	t.Log(err)
-}
-
-func TestWorkspace(t *testing.T) {
+func TestValidate(t *testing.T) {
 	bundle := NewBundle()
 
 	objOne := &objA{ValueA: 5, Description: "object a"}
@@ -85,7 +77,7 @@ func TestWorkspace(t *testing.T) {
 	objTwoBytes, _ := json.Marshal(objTwo)
 	bundle.Artifacts["two"] = objTwoBytes
 
-	config := &gcc.Config{Version: "1", Artifacts: map[gcc.FieldName]any{"objA": &configA{ValueA: 10}, "objB": &configB{ValueB: 5}}}
+	// config := &gcc.Config{Version: "1", Artifacts: map[gcc.FieldName]any{"objA": &configA{ValueA: 10}, "objB": &configB{ValueB: 5}}}
 
 	objADecoder := gce.NewJSONWriterDecoder[objA](string(FileTypeObjA), func(oa *objA) error {
 		if oa.Description != "object a" {
@@ -109,9 +101,22 @@ func TestWorkspace(t *testing.T) {
 
 	validator := NewValidator(validators, asyncDecoder)
 
-	err := validator.Validate(bundle, config)
+	configBuffer := new(bytes.Buffer)
+	_ = yaml.NewEncoder(configBuffer).Encode(map[string]any{"objA": &configA{ValueA: 10}, "objB": &configB{ValueB: 5}})
 
-	t.Log(err)
+	err := validator.Validate(bundle, configBuffer)
+	if !errors.Is(err, gcv.ErrValidation) {
+		t.Fatalf("want %v: got: %v", gcv.ErrValidation, err)
+	}
+
+	configBuffer = new(bytes.Buffer)
+	_ = yaml.NewEncoder(configBuffer).Encode(map[string]any{"objA": &configA{ValueA: 10}, "objB": &configB{ValueB: 100}})
+
+	err = validator.Validate(bundle, configBuffer)
+	if err != nil {
+		t.Fatalf("want %v: got: %v", nil, err)
+	}
+
 }
 
 const FileTypeObjA FileType = "Mock Obj A"
@@ -126,22 +131,36 @@ type configA struct {
 	ValueA int `yaml:"valueA"`
 }
 
+func checkObjA(o *objA) error {
+	if o == nil {
+		return gce.ErrFailedCheck
+	}
+	if o.Description != "object a" {
+		return gce.ErrFailedCheck
+	}
+	return nil
+
+}
+
+func newObjADecoder() *gce.JSONWriterDecoder[objA] {
+	return gce.NewJSONWriterDecoder[objA](string(FileTypeObjA), checkObjA)
+}
+
+func newObjBDecoder() *gce.JSONWriterDecoder[objB] {
+	return gce.NewJSONWriterDecoder[objB](string(FileTypeObjB), checkObjB)
+}
+
 func objAValidator() AnyValidator {
-	return gcv.NewValidator[*objA, *configA](func(oa *objA, ca *configA) error {
-		if oa == nil || ca == nil {
-			return gcv.ErrInput
-		}
+	return gcv.NewValidator[objA, configA]("objA", newObjADecoder(), func(oa objA, ca configA) error {
 		if oa.ValueA > ca.ValueA {
 			return gcv.ErrValidation
 		}
 		return nil
 	})
 }
+
 func objBValidator() AnyValidator {
-	return gcv.NewValidator[*objB, *configB](func(ob *objB, cb *configB) error {
-		if ob == nil || cb == nil {
-			return gcv.ErrInput
-		}
+	return gcv.NewValidator[objB, configB]("objB", newObjBDecoder(), func(ob objB, cb configB) error {
 		if ob.ValueB > cb.ValueB {
 			return gcv.ErrValidation
 		}
@@ -152,6 +171,16 @@ func objBValidator() AnyValidator {
 type objB struct {
 	ValueB      int    `json:"valueB"`
 	Description string `json:"description"`
+}
+
+func checkObjB(o *objB) error {
+	if o == nil {
+		return gce.ErrFailedCheck
+	}
+	if o.Description != "object b" {
+		return gce.ErrFailedCheck
+	}
+	return nil
 }
 
 type configB struct {

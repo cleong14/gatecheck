@@ -5,7 +5,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 )
 
 var (
@@ -19,7 +18,7 @@ var (
 func Test_RootCommand(t *testing.T) {
 	t.Parallel()
 	t.Run("logo", func(t *testing.T) {
-		out, err := Execute("", CLIConfig{AutoDecoderTimeout: time.Nanosecond})
+		out, err := Execute("", CLIConfig{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -52,7 +51,7 @@ func Test_RootCommand(t *testing.T) {
 }
 
 func Test_InitCommand(t *testing.T) {
-	out, err := Execute("config init", CLIConfig{AutoDecoderTimeout: time.Nanosecond})
+	out, err := Execute("config init", CLIConfig{})
 	if err != nil {
 		t.FailNow()
 	}
