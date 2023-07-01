@@ -57,10 +57,6 @@ func (d *ReportDecoder) DecodeFrom(r io.Reader) (any, error) {
 }
 
 func (d *ReportDecoder) Decode() (any, error) {
-	if d == nil {
-		return nil, fmt.Errorf("%w: %v", gce.ErrEncoding, "decoder buffer is nil")
-	}
-
 	// Edge Case: report with no findings
 	if d.String() == "[]" {
 		return &ScanReport{}, nil

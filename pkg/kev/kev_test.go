@@ -1,44 +1,53 @@
 package kev
 
 import (
-	"github.com/anchore/grype/grype/presenter/models"
-	"github.com/gatecheckdev/gatecheck/pkg/artifact"
+	"bytes"
 	"testing"
+
+	"github.com/anchore/grype/grype/presenter/models"
+	"github.com/gatecheckdev/gatecheck/pkg/artifacts/grype"
 )
 
 func TestVulnerabilities(t *testing.T) {
-	r := artifact.GrypeScanReport{Matches: []models.Match{
+	r := &grype.ScanReport{Matches: []models.Match{
 		{Vulnerability: models.Vulnerability{VulnerabilityMetadata: models.VulnerabilityMetadata{ID: "A"}}},
 		{Vulnerability: models.Vulnerability{VulnerabilityMetadata: models.VulnerabilityMetadata{ID: "B"}}},
 		{Vulnerability: models.Vulnerability{VulnerabilityMetadata: models.VulnerabilityMetadata{ID: "C"}}},
 	}}
-	br := artifact.KEVCatalog{Vulnerabilities: []artifact.KEVCatalogVulnerability{
+	catalog := Catalog{Vulnerabilities: []Vulnerability{
 		{CveID: "A"},
 		{CveID: "C"},
 	}}
 
-	matchedVulnerabilities := Vulnerabilities(r, br)
+	service := new(Service)
+	service.catalog = catalog
 
-	if len(matchedVulnerabilities) != 2 {
-		t.Error(matchedVulnerabilities)
-		t.Fatal("Matching algo failed")
+	service = service.WithReport(r)
+
+	if len(service.MatchedVulnerabilities()) != 2 {
+		t.Fatal("want: 2 got:", service.MatchedVulnerabilities())
 	}
 
-	t.Log(VulnerabilitiesStr("2022.11.08", matchedVulnerabilities))
+	buf := new(bytes.Buffer)
+
+	_, _ = service.WriteTo(buf)
+	t.Log(buf.String())
 
 	t.Run("test-no-vulnerabilities", func(t *testing.T) {
 
-		br := artifact.KEVCatalog{Vulnerabilities: []artifact.KEVCatalogVulnerability{
+		catalog := Catalog{Vulnerabilities: []Vulnerability{
 			{CveID: "D"},
 			{CveID: "F"},
 		}}
 
-		matchedVulnerabilities := Vulnerabilities(r, br)
-		if len(matchedVulnerabilities) != 0 {
+		service := new(Service)
+		service.catalog = catalog
+
+		service = service.WithReport(r)
+
+		if len(service.MatchedVulnerabilities()) != 0 {
 			t.Fatal("False positives found")
 		}
-
-		t.Log(VulnerabilitiesStr("2022.11.08", matchedVulnerabilities))
 	})
 
 }

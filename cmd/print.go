@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/gatecheckdev/gatecheck/internal/log"
-	archive "github.com/gatecheckdev/gatecheck/pkg/archive"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/gitleaks"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/grype"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/semgrep"
@@ -54,9 +53,6 @@ func printArtifact(w io.Writer, v any, newDecoder func() AsyncDecoder) {
 		outputString = v.(*semgrep.ScanReport).String()
 	case *gitleaks.ScanReport:
 		outputString = v.(*gitleaks.ScanReport).String()
-	case *archive.Bundle:
-		_ = archive.NewPrettyWriter(w).WithAsyncDecoder(newDecoder()).Encode(v.(*archive.Bundle))
-		return
 	}
 
 	_, _ = strings.NewReader(outputString).WriteTo(w)

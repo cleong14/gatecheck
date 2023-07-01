@@ -14,7 +14,7 @@ func Test_PrintCommand(t *testing.T) {
 	t.Parallel()
 
 	t.Run("semgrep", func(t *testing.T) {
-		f := MustOpen(semgrepTestReport, t.Fatal)
+		f := MustOpen(semgrepTestReport, t)
 		out, err := Execute("print "+f.Name(), config)
 		if err != nil {
 			t.Fatal(err)
@@ -24,7 +24,7 @@ func Test_PrintCommand(t *testing.T) {
 		}
 	})
 	t.Run("grype", func(t *testing.T) {
-		f := MustOpen(grypeTestReport, t.Fatal)
+		f := MustOpen(grypeTestReport, t)
 		out, err := Execute("print "+f.Name(), config)
 		if err != nil {
 			t.Fatal(err)
@@ -34,7 +34,7 @@ func Test_PrintCommand(t *testing.T) {
 		}
 	})
 	t.Run("gitleaks", func(t *testing.T) {
-		f := MustOpen(gitleaksTestReport, t.Fatal)
+		f := MustOpen(gitleaksTestReport, t)
 		out, err := Execute("print "+f.Name(), config)
 		if err != nil {
 			t.Fatal(err)
@@ -47,9 +47,9 @@ func Test_PrintCommand(t *testing.T) {
 
 	t.Run("multiple-files-and-piped-input", func(t *testing.T) {
 		t.Run("success", func(t *testing.T) {
-			f1 := MustOpen(grypeTestReport, t.Fatal)
-			f2 := MustOpen(semgrepTestReport, t.Fatal)
-			f3 := MustOpen(gitleaksTestReport, t.Fatal)
+			f1 := MustOpen(grypeTestReport, t)
+			f2 := MustOpen(semgrepTestReport, t)
+			f3 := MustOpen(gitleaksTestReport, t)
 			config := CLIConfig{NewAsyncDecoderFunc: AsyncDecoderFunc, PipedInput: f3}
 			commandString := fmt.Sprintf("print %s %s", f1.Name(), f2.Name())
 			out, err := Execute(commandString, config)
@@ -94,27 +94,3 @@ func Test_PrintCommand(t *testing.T) {
 
 }
 
-func fileWithBadPermissions(t *testing.T) (filename string) {
-	n := path.Join(t.TempDir(), "bad-file")
-	f, err := os.Create(n)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if err := f.Chmod(0000); err != nil {
-		t.Fatal(err)
-	}
-	_ = f.Close()
-
-	return n
-}
-
-func fileWithBadJSON(t *testing.T) (filename string) {
-	n := path.Join(t.TempDir(), "bad-file.json")
-
-	if err := os.WriteFile(n, []byte("{{"), 0664); err != nil {
-		t.Fatal(err)
-	}
-
-	return n
-}

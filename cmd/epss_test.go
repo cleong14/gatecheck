@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/anchore/grype/grype/presenter/models"
-	"github.com/gatecheckdev/gatecheck/pkg/artifact"
+	"github.com/gatecheckdev/gatecheck/pkg/artifacts/grype"
 	"github.com/gatecheckdev/gatecheck/pkg/epss"
 )
 
@@ -79,7 +79,7 @@ func TestNewEPSSCmd(t *testing.T) {
 	t.Run("bad-file", func(t *testing.T) {
 		// Bad Grype file
 		commandString := fmt.Sprintf("epss %s", fileWithBadPermissions(t))
-		output, err := Execute(commandString, regularConfig) 
+		output, err := Execute(commandString, regularConfig)
 		if errors.Is(err, ErrorFileAccess) != true {
 			t.Fatal(err)
 		}
@@ -145,7 +145,7 @@ func TestNewEPSSCmd(t *testing.T) {
 	})
 }
 
-func MockGrypeReport(t *testing.T, scan artifact.GrypeScanReport) string {
+func MockGrypeReport(t *testing.T, scan grype.ScanReport) string {
 
 	tempGrypeScanFile := path.Join(t.TempDir(), "mock-grype-scan.json")
 
@@ -156,9 +156,9 @@ func MockGrypeReport(t *testing.T, scan artifact.GrypeScanReport) string {
 }
 
 func MockAppendedGrypeReport(t *testing.T, match models.Match) string {
-	var grypeScan artifact.GrypeScanReport
+	var grypeScan grype.ScanReport
 
-	_ = json.NewDecoder(MustOpen(grypeTestReport, t.Fatal)).Decode(&grypeScan)
+	_ = json.NewDecoder(MustOpen(grypeTestReport, t)).Decode(&grypeScan)
 
 	grypeScan.Matches = append(grypeScan.Matches, match)
 

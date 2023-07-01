@@ -4,34 +4,171 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
+	"net/http"
+	"net/http/httptest"
 	"path"
 	"testing"
+	"time"
 
 	gosemgrep "github.com/BacchusJackson/go-semgrep"
 	"github.com/anchore/grype/grype/presenter/models"
-	gca "github.com/gatecheckdev/gatecheck/pkg/archive"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/gitleaks"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/grype"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/semgrep"
 	gce "github.com/gatecheckdev/gatecheck/pkg/encoding"
+	"github.com/gatecheckdev/gatecheck/pkg/kev"
 	"gopkg.in/yaml.v3"
 )
 
-func TestGrype(t *testing.T) {
+func TestKEVValidation(t *testing.T) {
+
 	grypeReport := grype.ScanReport{}
 	grypeReport.Descriptor.Name = "grype"
 	grypeReport.Matches = append(grypeReport.Matches, models.Match{Vulnerability: models.Vulnerability{
 		VulnerabilityMetadata: models.VulnerabilityMetadata{ID: "abc-123", Severity: "Critical"},
 	}})
-	grypeFilename := writeTempAny(&grypeReport, t)
 
-	obj, err := gce.NewAsyncDecoder(grype.NewReportDecoder()).DecodeFrom(MustOpen(grypeFilename, t.Fatal))
-	if err != nil {
-		t.Fatal(err)
+	t.Run("success-pass-download", func(t *testing.T) {
+		reportFilename := writeTempAny(&grypeReport, t)
+		configFilename := writeTempConfig(map[string]any{"grype": grype.Config{Critical: 0, High: -1, Medium: -1, Low: -1, Unknown: -1}}, t)
+
+		mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			catalog := &kev.Catalog{Title: "Mock Catalog", CatalogVersion: "Mock Version", DateReleased: time.Now(), Count: 1,
+				Vulnerabilities: []kev.Vulnerability{{CveID: "abc-123"}}}
+			_ = json.NewEncoder(w).Encode(catalog)
+		}))
+
+		commandString := fmt.Sprintf("validate --fetch-kev -c %s %s", configFilename, reportFilename)
+		output, err := Execute(commandString, CLIConfig{NewAsyncDecoderFunc: NewAsyncDecoder, Client: mockServer.Client(), KEVDownloadURL: mockServer.URL})
+		t.Log(output)
+
+		if !errors.Is(err, ErrorValidation) {
+			t.Fatalf("want %v got %v", ErrorValidation, err)
+		}
+
+	})
+
+	t.Run("download-api-failure", func(t *testing.T) {
+		reportFilename := writeTempAny(&grypeReport, t)
+		configFilename := writeTempConfig(map[string]any{"grype": grype.Config{Critical: 0, High: -1, Medium: -1, Low: -1, Unknown: -1}}, t)
+
+		mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+		mockServer.Close()
+
+		commandString := fmt.Sprintf("validate --fetch-kev -c %s %s", configFilename, reportFilename)
+
+		output, err := Execute(commandString, CLIConfig{NewAsyncDecoderFunc: NewAsyncDecoder, Client: mockServer.Client(), KEVDownloadURL: mockServer.URL})
+		t.Log(output)
+
+		if !errors.Is(err, ErrorAPI) {
+			t.Fatalf("want %v got %v", ErrorAPI, err)
+		}
+
+	})
+
+	t.Run("success-fail", func(t *testing.T) {
+		reportFilename := writeTempAny(&grypeReport, t)
+		configFilename := writeTempConfig(map[string]any{"grype": grype.Config{Critical: 0, High: -1, Medium: -1, Low: -1, Unknown: -1}}, t)
+
+		kevFilenameFail := writeTempAny(&kev.Catalog{
+			Title: "Mock Catalog", CatalogVersion: "Mock Version", DateReleased: time.Now(),
+			Count: 1, Vulnerabilities: []kev.Vulnerability{{CveID: "abc-123"}},
+		}, t)
+		commandString := fmt.Sprintf("validate -k %s -c %s %s", kevFilenameFail, configFilename, reportFilename)
+		output, err := Execute(commandString, CLIConfig{NewAsyncDecoderFunc: NewAsyncDecoder})
+		t.Log(output)
+
+		if !errors.Is(err, ErrorValidation) {
+			t.Fatalf("want %v got %v", ErrorValidation, err)
+		}
+	})
+
+	t.Run("success-pass", func(t *testing.T) {
+		reportFilename := writeTempAny(&grypeReport, t)
+		configFilename := writeTempConfig(map[string]any{"grype": grype.Config{Critical: -1, High: -1, Medium: -1, Low: -1, Unknown: -1}}, t)
+		kevFilenamePass := writeTempAny(&kev.Catalog{
+			Title:           "Mock Catalog",
+			CatalogVersion:  "Mock Version",
+			DateReleased:    time.Now(),
+			Count:           1,
+			Vulnerabilities: []kev.Vulnerability{{CveID: "def-345"}},
+		}, t)
+
+		commandString := fmt.Sprintf("validate -k %s -c %s %s", kevFilenamePass, configFilename, reportFilename)
+		output, err := Execute(commandString, CLIConfig{NewAsyncDecoderFunc: NewAsyncDecoder})
+		t.Log(output)
+
+		if err != nil {
+			t.Fatalf("want %v got %v", nil, err)
+		}
+	})
+
+	reportFilename := writeTempAny(&grypeReport, t)
+	configFilename := writeTempConfig(map[string]any{"grype": grype.Config{Critical: 0, High: -1, Medium: -1, Low: -1, Unknown: -1},
+		"semgrep": semgrep.Config{Error: -1, Info: -1, Warning: -1}}, t)
+
+	t.Run("kev-flag-no-grype-file", func(t *testing.T) {
+		semgrepReport := semgrep.ScanReport{Errors: make([]gosemgrep.CliError, 0)}
+		semgrepReport.Paths.Scanned = make([]string, 0)
+		semgrepReport.Results = append(semgrepReport.Results, gosemgrep.CliMatch{Extra: gosemgrep.CliMatchExtra{Severity: "ERROR", Metadata: gosemgrep.CliMatchExtra{Severity: "ERROR"}}})
+
+		semgrepFilename := writeTempAny(&semgrepReport, t)
+
+		commandString := fmt.Sprintf("validate --fetch-kev -c %s %s", configFilename, semgrepFilename)
+
+		_, err := Execute(commandString, CLIConfig{NewAsyncDecoderFunc: NewAsyncDecoder})
+
+		if err != nil {
+			t.Fatalf("want %v got %v", nil, err)
+		}
+
+	})
+
+	t.Run("kev-bad-file", func(t *testing.T) {
+		commandString := fmt.Sprintf("validate -k %s -c %s %s", fileWithBadPermissions(t), configFilename, reportFilename)
+		output, err := Execute(commandString, CLIConfig{NewAsyncDecoderFunc: NewAsyncDecoder})
+		t.Log(output)
+
+		if !errors.Is(err, ErrorFileAccess) {
+			t.Fatalf("want %v got %v", ErrorFileAccess, err)
+		}
+	})
+	t.Run("kev-bad-encoding", func(t *testing.T) {
+		commandString := fmt.Sprintf("validate -k %s -c %s %s", fileWithBadJSON(t), configFilename, reportFilename)
+		output, err := Execute(commandString, CLIConfig{NewAsyncDecoderFunc: NewAsyncDecoder})
+		t.Log(output)
+
+		if !errors.Is(err, ErrorEncoding) {
+			t.Fatalf("want %v got %v", ErrorEncoding, err)
+		}
+	})
+
+}
+
+func TestAuditFlag(t *testing.T) {
+	grypeReport := grype.ScanReport{}
+	grypeReport.Descriptor.Name = "grype"
+	grypeReport.Matches = append(grypeReport.Matches, models.Match{Vulnerability: models.Vulnerability{
+		VulnerabilityMetadata: models.VulnerabilityMetadata{ID: "abc-123", Severity: "Critical"},
+	}})
+	reportFilename := writeTempAny(&grypeReport, t)
+	configFilename := writeTempConfig(map[string]any{"grype": grype.Config{Critical: 0, High: -1, Medium: -1, Low: -1, Unknown: -1}}, t)
+
+	commandString := fmt.Sprintf("validate -c %s %s", configFilename, reportFilename)
+	output, err := Execute(commandString, CLIConfig{NewAsyncDecoderFunc: NewAsyncDecoder})
+	t.Log(output)
+
+	if !errors.Is(err, ErrorValidation) {
+		t.Fatalf("want %v got %v", ErrorValidation, err)
 	}
 
-	t.Log(obj)
+	commandString = fmt.Sprintf("validate --audit -c %s %s", configFilename, reportFilename)
+	output, err = Execute(commandString, CLIConfig{NewAsyncDecoderFunc: NewAsyncDecoder})
+	t.Log(output)
+
+	if err != nil {
+		t.Fatalf("want %v got %v", nil, err)
+	}
 
 }
 
@@ -73,39 +210,21 @@ func TestValidateCmd(t *testing.T) {
 	configPassFilename := writeTempConfig(configPass, t)
 	configFailFilename := writeTempConfig(configFail, t)
 
-	bundle := gca.NewBundle()
-	bundle.Artifacts["grype-report.json"] = MustRead(grypeFilename, t)
-	bundle.Artifacts["semgrep-report.json"] = MustRead(semgrepFilename, t)
-	bundle.Artifacts["gitleaks-report.json"] = MustRead(gitleaksFilename, t)
-
-	bundleFilename := path.Join(t.TempDir(), "bundle.gatecheck")	
-	_ = gca.NewEncoder(MustCreate(bundleFilename, t)).Encode(bundle)
-
-	newAsyncDecoder := func() AsyncDecoder {
-		return gce.NewAsyncDecoder(
-			grype.NewReportDecoder(),
-			semgrep.NewReportDecoder(),
-			gitleaks.NewReportDecoder(),
-			gca.NewDecoder(),
-		)
-	}
-
 	testTable := []struct {
 		label      string
 		wantErr    error
 		reportFunc func(*testing.T) string
 		configFunc func(*testing.T) string
 	}{
-		{label: "bad-object-file", wantErr: ErrorFileAccess, reportFunc: fileWithBadPermissions, configFunc: fileWithBadPermissions},
-		{label: "bad-config-file", wantErr: ErrorFileAccess, reportFunc: fileFunc(grypeTestReport), configFunc: fileWithBadPermissions},
 		{label: "grype-pass", wantErr: nil, reportFunc: fileFunc(grypeFilename), configFunc: fileFunc(configPassFilename)},
 		{label: "grype-fail", wantErr: ErrorValidation, reportFunc: fileFunc(grypeFilename), configFunc: fileFunc(configFailFilename)},
 		{label: "semgrep-pass", wantErr: nil, reportFunc: fileFunc(semgrepFilename), configFunc: fileFunc(configPassFilename)},
 		{label: "semgrep-fail", wantErr: ErrorValidation, reportFunc: fileFunc(semgrepFilename), configFunc: fileFunc(configFailFilename)},
 		{label: "gitleaks-pass", wantErr: nil, reportFunc: fileFunc(gitleaksFilename), configFunc: fileFunc(configPassFilename)},
 		{label: "gitleaks-fail", wantErr: ErrorValidation, reportFunc: fileFunc(gitleaksFilename), configFunc: fileFunc(configFailFilename)},
-		{label: "bundle-pass", wantErr: nil, reportFunc: fileFunc(bundleFilename), configFunc: fileFunc(configPassFilename)},
-		{label: "bundle-fail", wantErr: ErrorValidation, reportFunc: fileFunc(bundleFilename), configFunc: fileFunc(configFailFilename)},
+		{label: "bad-object-file", wantErr: ErrorFileAccess, reportFunc: fileWithBadPermissions, configFunc: fileWithBadPermissions},
+		{label: "bad-config-file", wantErr: ErrorFileAccess, reportFunc: fileFunc(grypeTestReport), configFunc: fileWithBadPermissions},
+		{label: "decode-error", wantErr: ErrorEncoding, reportFunc: fileWithBadJSON, configFunc: fileFunc(configPassFilename)},
 	}
 
 	for _, testCase := range testTable {
@@ -114,7 +233,7 @@ func TestValidateCmd(t *testing.T) {
 			report := testCase.reportFunc(t)
 			config := testCase.configFunc(t)
 			commandString := fmt.Sprintf("validate -c %s %s", config, report)
-			output, err := Execute(commandString, CLIConfig{NewAsyncDecoderFunc: newAsyncDecoder})
+			output, err := Execute(commandString, CLIConfig{NewAsyncDecoderFunc: NewAsyncDecoder})
 			t.Log(output)
 			if !errors.Is(err, testCase.wantErr) {
 				t.Fatalf("want %v got %v", testCase.wantErr, err)
@@ -123,6 +242,14 @@ func TestValidateCmd(t *testing.T) {
 		})
 
 	}
+}
+
+func NewAsyncDecoder() AsyncDecoder {
+	return gce.NewAsyncDecoder(
+		grype.NewReportDecoder(),
+		semgrep.NewReportDecoder(),
+		gitleaks.NewReportDecoder(),
+	)
 }
 
 func writeTempAny(v any, t *testing.T) string {
@@ -140,289 +267,3 @@ func writeTempConfig(configMap map[string]any, t *testing.T) string {
 	_ = configFile.Close()
 	return filename
 }
-
-func MustCreate(filename string, t *testing.T) *os.File {
-	f, err := os.Create(filename)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return f
-}
-
-func MustRead(filename string, t *testing.T) []byte {
-	b, err := os.ReadFile(filename)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return b
-}
-
-// func TestNewValidateCmd(t *testing.T) {
-// 	t.Run("bad-config", func(t *testing.T) {
-// 		commandString := fmt.Sprintf("validate -c %s %s", fileWithBadPermissions(t), fileWithBadPermissions(t))
-// 		output, err := Execute(commandString, CLIConfig{})
-//
-// 		if errors.Is(err, ErrorFileAccess) != true {
-// 			t.Fatal(err)
-// 		}
-//
-// 		t.Log(output)
-// 	})
-//
-// 	t.Run("bad-config-decode", func(t *testing.T) {
-// 		commandString := fmt.Sprintf("validate -c %s %s", fileWithBadJSON(t), fileWithBadPermissions(t))
-// 		output, err := Execute(commandString, CLIConfig{})
-//
-// 		if errors.Is(err, ErrorEncoding) != true {
-// 			t.Fatal(err)
-// 		}
-//
-// 		t.Log(output)
-// 	})
-//
-// 	t.Run("bad-target", func(t *testing.T) {
-// 		configFile := path.Join(t.TempDir(), "gatecheck.yaml")
-// 		f, _ := os.Create(configFile)
-// 		_ = yaml.NewEncoder(f).Encode(artifact.NewConfig())
-// 		commandString := fmt.Sprintf("validate -c %s %s", configFile, fileWithBadPermissions(t))
-// 		output, err := Execute(commandString, CLIConfig{})
-//
-// 		if errors.Is(err, ErrorFileAccess) != true {
-// 			t.Fatal(err)
-// 		}
-//
-// 		t.Log(output)
-// 	})
-//
-// 	t.Run("validation-error", func(t *testing.T) {
-// 		configFile := path.Join(t.TempDir(), "gatecheck.yaml")
-// 		f, _ := os.Create(configFile)
-// 		_ = yaml.NewEncoder(f).Encode(artifact.NewConfig())
-// 		commandString := fmt.Sprintf("validate -c %s %s", configFile, gitleaksTestReport)
-// 		_, err := Execute(commandString, CLIConfig{AutoDecoderTimeout: time.Second * 3})
-//
-// 		if errors.Is(err, ErrorValidation) != true {
-// 			t.Fatal(err)
-// 		}
-//
-// 		t.Run("audit", func(t *testing.T) {
-// 			commandString := fmt.Sprintf("validate --audit -c %s %s", configFile, gitleaksTestReport)
-// 			_, err := Execute(commandString, CLIConfig{AutoDecoderTimeout: time.Second * 3})
-//
-// 			if err != nil {
-// 				t.Fatal(err)
-// 			}
-// 		})
-// 	})
-//
-// 	t.Run("success-with-kev", func(t *testing.T) {
-// 		configFile := path.Join(t.TempDir(), "gatecheck.yaml")
-// 		f, _ := os.Create(configFile)
-// 		config := artifact.NewConfig()
-// 		config.Grype.Critical = 0
-// 		_ = yaml.NewEncoder(f).Encode(config)
-// 		commandString := fmt.Sprintf("validate -k %s -c %s %s",
-// 			kevTestFile, configFile, grypeTestReport)
-// 		output, err := Execute(commandString, CLIConfig{AutoDecoderTimeout: time.Second * 3})
-//
-// 		if errors.Is(err, ErrorValidation) != true {
-// 			t.Log(output)
-// 			t.Fatal(err)
-// 		}
-// 	})
-//
-// 	t.Run("with-kev-audit", func(t *testing.T) {
-// 		configFile := path.Join(t.TempDir(), "gatecheck.yaml")
-// 		f, _ := os.Create(configFile)
-// 		config := artifact.NewConfig()
-// 		config.Grype.Critical = 0
-// 		_ = yaml.NewEncoder(f).Encode(config)
-// 		commandString := fmt.Sprintf("validate --audit -k %s -c %s %s",
-// 			kevTestFile, configFile, grypeTestReport)
-// 		output, err := Execute(commandString, CLIConfig{AutoDecoderTimeout: time.Second * 3})
-//
-// 		if err != nil {
-// 			t.Log(output)
-// 			t.Fatal(err)
-// 		}
-// 	})
-//
-// 	t.Run("with-kev-found-vulnerability", func(t *testing.T) {
-// 		configFile := path.Join(t.TempDir(), "gatecheck.yaml")
-// 		f, _ := os.Create(configFile)
-// 		config := artifact.NewConfig()
-// 		config.Grype.Critical = 0
-// 		_ = yaml.NewEncoder(f).Encode(config)
-//
-// 		var grypeScan artifact.GrypeScanReport
-// 		_ = json.NewDecoder(MustOpen(grypeTestReport, t.Fatal)).Decode(&grypeScan)
-// 		grypeScan.Matches = append(grypeScan.Matches,
-// 			models.Match{Vulnerability: models.Vulnerability{VulnerabilityMetadata: models.VulnerabilityMetadata{ID: "A"}}})
-// 		tempGrypeScanFile := path.Join(t.TempDir(), "new-grype-scan.json")
-// 		f, _ = os.Create(tempGrypeScanFile)
-// 		_ = json.NewEncoder(f).Encode(grypeScan)
-//
-// 		kev := artifact.KEVCatalog{Vulnerabilities: []artifact.KEVCatalogVulnerability{
-// 			{CveID: "A"},
-// 		}}
-// 		tempKEVScanFile := path.Join(t.TempDir(), "new-kev.json")
-// 		f, _ = os.Create(tempKEVScanFile)
-// 		_ = json.NewEncoder(f).Encode(kev)
-//
-// 		commandString := fmt.Sprintf("validate -k %s -c %s %s",
-// 			tempKEVScanFile, configFile, tempGrypeScanFile)
-// 		output, err := Execute(commandString, CLIConfig{AutoDecoderTimeout: time.Second * 3})
-//
-// 		if errors.Is(err, ErrorValidation) != true {
-// 			t.Log(output)
-// 			t.Fatal(err)
-// 		}
-// 	})
-//
-// 	t.Run("kev-file-access", func(t *testing.T) {
-// 		configFile := path.Join(t.TempDir(), "gatecheck.yaml")
-// 		f, _ := os.Create(configFile)
-// 		_ = yaml.NewEncoder(f).Encode(artifact.NewConfig())
-// 		commandString := fmt.Sprintf("validate -k %s -c %s %s",
-// 			fileWithBadPermissions(t), configFile, gitleaksTestReport)
-// 		_, err := Execute(commandString, CLIConfig{AutoDecoderTimeout: time.Second * 3})
-//
-// 		if errors.Is(err, ErrorFileAccess) != true {
-// 			t.Fatal(err)
-// 		}
-// 	})
-//
-// 	t.Run("kev-bad-decode", func(t *testing.T) {
-// 		configFile := path.Join(t.TempDir(), "gatecheck.yaml")
-// 		f, _ := os.Create(configFile)
-// 		_ = yaml.NewEncoder(f).Encode(artifact.NewConfig())
-// 		commandString := fmt.Sprintf("validate -k %s -c %s %s", fileWithBadJSON(t), configFile, gitleaksTestReport)
-// 		_, err := Execute(commandString, CLIConfig{AutoDecoderTimeout: time.Second * 3})
-//
-// 		if errors.Is(err, ErrorEncoding) != true {
-// 			t.Fatal(err)
-// 		}
-// 	})
-//
-// 	t.Run("kev-unsupported", func(t *testing.T) {
-// 		configFile := path.Join(t.TempDir(), "gatecheck.yaml")
-// 		f, _ := os.Create(configFile)
-// 		_ = yaml.NewEncoder(f).Encode(artifact.NewConfig())
-// 		commandString := fmt.Sprintf("validate -k %s -c %s %s", kevTestFile, configFile, gitleaksTestReport)
-// 		_, err := Execute(commandString, CLIConfig{AutoDecoderTimeout: time.Second * 3})
-//
-// 		if errors.Is(err, ErrorEncoding) != true {
-// 			t.Fatal(err)
-// 		}
-// 	})
-// }
-//
-//
-// func TestParseAndValidate(t *testing.T) {
-// 	const timeout = time.Second * 3
-// 	t.Run("timeout", func(t *testing.T) {
-// 		b := make([]byte, 10_000)
-// 		rand.Read(b)
-// 		err := ParseAndValidate(bytes.NewBuffer(b), *artifact.NewConfig(), time.Nanosecond)
-// 		if errors.Is(err, context.Canceled) != true {
-// 			t.Fatal(err)
-// 		}
-// 	})
-// 	t.Run("semgrep", func(t *testing.T) {
-// 		config := artifact.NewConfig()
-// 		config.Semgrep = nil
-// 		err := ParseAndValidate(MustOpen(semgrepTestReport, t.Fatal), *config, timeout)
-// 		if err == nil {
-// 			t.Fatal("Expected error for missing configuration")
-// 		}
-// 		config.Semgrep = artifact.NewConfig().Semgrep
-// 		err = ParseAndValidate(MustOpen(semgrepTestReport, t.Fatal), *config, timeout)
-// 		if err != nil {
-// 			t.Fatal(err)
-// 		}
-// 	})
-//
-// 	t.Run("grype", func(t *testing.T) {
-// 		config := artifact.NewConfig()
-// 		config.Grype = nil
-// 		err := ParseAndValidate(MustOpen(grypeTestReport, t.Fatal), *config, timeout)
-// 		if err == nil {
-// 			t.Fatal("Expected error for missing configuration")
-// 		}
-// 		config.Grype = artifact.NewConfig().Grype
-// 		err = ParseAndValidate(MustOpen(grypeTestReport, t.Fatal), *config, timeout)
-// 		if err != nil {
-// 			t.Fatal(err)
-// 		}
-// 	})
-// 	t.Run("gitleaks", func(t *testing.T) {
-// 		config := artifact.NewConfig()
-// 		config.Gitleaks = nil
-// 		err := ParseAndValidate(MustOpen(gitleaksTestReport, t.Fatal), *config, timeout)
-// 		if err == nil {
-// 			t.Fatal("Expected error for missing configuration")
-// 		}
-//
-// 		config.Gitleaks = artifact.NewConfig().Gitleaks
-// 		config.Gitleaks.SecretsAllowed = true
-// 		err = ParseAndValidate(MustOpen(gitleaksTestReport, t.Fatal), *config, timeout)
-// 		if err != nil {
-// 			t.Fatal(err)
-// 		}
-// 	})
-// 	t.Run("unsupported", func(t *testing.T) {
-// 		b := make([]byte, 10_000)
-// 		rand.Read(b)
-// 		err := ParseAndValidate(bytes.NewBuffer(b), *artifact.NewConfig(), timeout)
-// 		if err == nil {
-// 			t.Fatal("Expected error for missing configuration")
-// 		}
-// 	})
-//
-// }
-//
-// func TestParseAndValidate_bundle(t *testing.T) {
-//
-// 	grypeArtifact, _ := artifact.NewArtifact("grype", MustOpen(grypeTestReport, t.Fatal))
-// 	semgrepArtifact, _ := artifact.NewArtifact("semgrep", MustOpen(semgrepTestReport, t.Fatal))
-// 	gitleaksArtifact, _ := artifact.NewArtifact("gitleaks", MustOpen(gitleaksTestReport, t.Fatal))
-//
-// 	bundle := artifact.NewBundle()
-// 	_ = bundle.Add(grypeArtifact, semgrepArtifact, gitleaksArtifact)
-//
-// 	t.Run("fail-validation", func(t *testing.T) {
-//
-// 		config := artifact.NewConfig()
-// 		config.Grype.Critical = 0
-// 		config.Semgrep.Error = 0
-// 		config.Gitleaks.SecretsAllowed = false
-//
-// 		buf := new(bytes.Buffer)
-// 		_ = artifact.NewBundleEncoder(buf).Encode(bundle)
-// 		err := ParseAndValidate(buf, *config, time.Second*3)
-//
-// 		if err == nil {
-// 			t.Fatal("expected error for failed validation")
-// 		}
-//
-// 		t.Log(err)
-// 	})
-//
-// 	t.Run("pass-validation", func(t *testing.T) {
-//
-// 		config := artifact.NewConfig()
-// 		config.Gitleaks.SecretsAllowed = true
-//
-// 		buf := new(bytes.Buffer)
-// 		_ = artifact.NewBundleEncoder(buf).Encode(bundle)
-// 		err := ParseAndValidate(buf, *config, time.Second*3)
-//
-// 		if err != nil {
-// 			t.Fatal(err)
-// 		}
-//
-// 		t.Log(err)
-// 	})
-//
-// }
-//

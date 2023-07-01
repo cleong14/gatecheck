@@ -20,9 +20,9 @@ import (
 func TestNewExport_DDCmd(t *testing.T) {
 	t.Run("defectdojo-success", func(t *testing.T) {
 		files := []*os.File{
-			MustOpen(grypeTestReport, t.Fatal),
-			MustOpen(semgrepTestReport, t.Fatal),
-			MustOpen(gitleaksTestReport, t.Fatal),
+			MustOpen(grypeTestReport, t),
+			MustOpen(semgrepTestReport, t),
+			MustOpen(gitleaksTestReport, t),
 		}
 
 		for _, v := range files {
@@ -40,6 +40,7 @@ func TestNewExport_DDCmd(t *testing.T) {
 			}
 		}
 	})
+
 
 	t.Run("defectdojo-bad-file", func(t *testing.T) {
 		commandString := fmt.Sprintf("export dd %s", fileWithBadPermissions(t))
@@ -92,7 +93,7 @@ func TestNewExport_DDCmd(t *testing.T) {
 func TestExportS3Cmd(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
-		f := MustOpen(grypeTestReport, t.Fatal)
+		f := MustOpen(grypeTestReport, t)
 
 		commandString := fmt.Sprintf("export s3 %s --key a/b/c", f.Name())
 

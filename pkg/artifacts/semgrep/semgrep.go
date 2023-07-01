@@ -40,14 +40,14 @@ func (r ScanReport) String() string {
 }
 
 func NewReportDecoder() *gce.JSONWriterDecoder[ScanReport] {
-	return gce.NewJSONWriterDecoder[ScanReport](ReportType, checkSemgrep)
+	return gce.NewJSONWriterDecoder[ScanReport](ReportType, checkReport)
 }
 
 func NewValidator() *gcv.Validator[ScanReport, Config] {
 	return gcv.NewValidator[ScanReport, Config](ConfigFieldName, NewReportDecoder(), validateFunc)
 }
 
-func checkSemgrep(report *ScanReport) error {
+func checkReport(report *ScanReport) error {
 	if report == nil {
 		return gce.ErrFailedCheck
 	}

@@ -20,7 +20,6 @@ import (
 	"github.com/gatecheckdev/gatecheck/pkg/epss"
 	"github.com/gatecheckdev/gatecheck/pkg/export/aws"
 	"github.com/gatecheckdev/gatecheck/pkg/export/defectdojo"
-	gcv "github.com/gatecheckdev/gatecheck/pkg/validate"
 )
 
 const ExitSystemFail int = -1
@@ -62,15 +61,16 @@ func main() {
 	}
 
 	command := cmd.NewRootCommand(cmd.CLIConfig{
-		AutoDecoderTimeout: 5 * time.Second,
-		DDExportTimeout:    5 * time.Minute,
-		Version:            "0.0.10",
-		EPSSService:        epssService,
-		DDExportService:    &dojoService,
-		DDEngagement:       ddEngagement,
-		AWSExportService:   awsService,
-		AWSExportTimeout:   5 * time.Minute,
-		PipedInput:         pipedFile,
+		DDExportTimeout:  5 * time.Minute,
+		Client:           http.DefaultClient,
+		KEVDownloadURL:   "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json",
+		Version:          "0.0.10",
+		EPSSService:      epssService,
+		DDExportService:  &dojoService,
+		DDEngagement:     ddEngagement,
+		AWSExportService: awsService,
+		AWSExportTimeout: 5 * time.Minute,
+		PipedInput:       pipedFile,
 	})
 
 	command.PersistentPreRun = func(_ *cobra.Command, _ []string) {
@@ -117,7 +117,7 @@ func AsyncDecoderFunc() cmd.AsyncDecoder {
 
 // func ValidatorFuc(obj any, objConfig any) cmd.AnyValidator {
 // 	switch obj.(type) {
-// 	case 
+// 	case
 // 	}
 // }
 

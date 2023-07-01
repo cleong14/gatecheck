@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net/http"
 	"os"
 	"time"
 
-	"github.com/gatecheckdev/gatecheck/pkg/artifact"
+	"github.com/gatecheckdev/gatecheck/pkg/artifacts/gitleaks"
+	"github.com/gatecheckdev/gatecheck/pkg/artifacts/grype"
+	"github.com/gatecheckdev/gatecheck/pkg/artifacts/semgrep"
 	"github.com/gatecheckdev/gatecheck/pkg/epss"
 	"github.com/gatecheckdev/gatecheck/pkg/export/defectdojo"
 	"github.com/spf13/cobra"
@@ -32,6 +35,9 @@ type EPSSService interface {
 	WriteEPSS([]epss.CVE) error
 }
 
+type KEVService interface {
+}
+
 type AWSExportService interface {
 	Export(context.Context, io.Reader, string) error
 }
@@ -44,11 +50,10 @@ type AsyncDecoder interface {
 	Reset()
 }
 
-
-
 type CLIConfig struct {
 	Version             string
 	PipedInput          *os.File
+	Client              *http.Client
 	DefaultReport       string
 	EPSSService         EPSSService
 	DDExportService     DDExportService
@@ -58,6 +63,7 @@ type CLIConfig struct {
 	AWSExportTimeout    time.Duration
 	NewAsyncDecoderFunc func() AsyncDecoder
 	NewValidatorFunc    func() AnyValidator
+	KEVDownloadURL      string
 }
 
 func NewRootCommand(config CLIConfig) *cobra.Command {
@@ -76,8 +82,8 @@ func NewRootCommand(config CLIConfig) *cobra.Command {
 	// Commands
 	command.AddCommand(NewVersionCmd(config.Version))
 	command.AddCommand(NewPrintCommand(config.PipedInput, config.NewAsyncDecoderFunc))
-	command.AddCommand(NewConfigCmd(), NewBundleCmd())
-	command.AddCommand(NewValidateCmd(config.NewAsyncDecoderFunc))
+	command.AddCommand(NewConfigCmd())
+	command.AddCommand(NewValidateCmd(config.NewAsyncDecoderFunc, config.KEVDownloadURL, config.Client))
 	command.AddCommand(NewEPSSCmd(config.EPSSService))
 	command.AddCommand(
 		NewExportCmd(
@@ -117,7 +123,13 @@ func NewConfigCmd() *cobra.Command {
 		Use:   "init",
 		Short: "prints a new configuration file.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return yaml.NewEncoder(cmd.OutOrStdout()).Encode(artifact.NewConfig())
+			configMap := map[string]any{
+				"version":  "1",
+				"grype":    grype.Config{},
+				"semgrep":  semgrep.Config{},
+				"gitleaks": gitleaks.Config{},
+			}
+			return yaml.NewEncoder(cmd.OutOrStdout()).Encode(configMap)
 		},
 	}
 

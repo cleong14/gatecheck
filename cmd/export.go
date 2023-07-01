@@ -52,11 +52,7 @@ func NewExportCmd(
 			multiWriter := io.MultiWriter(decoder, exportBuf)
 
 			_, _ = io.Copy(multiWriter, f)
-			obj, err := decoder.Decode()
-
-			if err != nil {
-				return fmt.Errorf("%w: %v", ErrorEncoding, err)
-			}
+			obj, _ := decoder.Decode()
 
 			var ddScanType defectdojo.ScanType
 			switch obj.(type) {

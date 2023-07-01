@@ -60,31 +60,3 @@ func (v *Validator[ObjectT, ConfigT]) ValidateFrom(objReader io.Reader, configRe
 	return v.Validate(o, configReader)
 }
 
-// func (v *Validator[ObjectT, ConfigT]) ValidateFrom(objReader io.Reader, configReader io.Reader) error {
-// 	_, _ = io.Copy(v.objectDecoder, objReader)
-// 	_, _ = io.Copy(v.configDecoder, configReader)
-//
-// 	o, err := v.objectDecoder.Decode()
-// 	obj, ok := o.(*ObjectT)
-// 	if !ok {
-// 		return fmt.Errorf("%w: invalid object type %T, possible decoding error: %v", ErrInput, o, err)
-// 	}
-//
-// 	c, err := v.configDecoder.Decode()
-// 	config, ok := c.(*ConfigT)
-// 	if !ok {
-// 		return fmt.Errorf("%w: invalid config type %T, possible decoding error: %v", ErrInput, o, err)
-// 	}
-//
-// 	return v.validateFunction(*obj, *config)
-// }
-//
-// func (v *Validator[ObjectT, ConfigT]) WithDecoders(objectDecoder WriterDecoder, configDecoder WriterDecoder) *Validator[ObjectT, ConfigT] {
-// 	v.objectDecoder = objectDecoder
-// 	v.configDecoder = configDecoder
-// 	return v
-// }
-//
-// func NewValidator[ValidateT any, ConfigT any](validateFunction func(ValidateT, ConfigT) error) *Validator[ValidateT, ConfigT] {
-// 	return &Validator[ValidateT, ConfigT]{validateFunction: validateFunction, objectDecoder: nil, configDecoder: nil}
-// }

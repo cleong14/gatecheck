@@ -4,100 +4,125 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"io"
+	"strings"
 	"testing"
+
+	gce "github.com/gatecheckdev/gatecheck/pkg/encoding"
+	"gopkg.in/yaml.v3"
 )
 
-func TestNewValidator(t *testing.T) {
-	testTable := []struct {
-		label     string
-		wantErr   error
-		useReport any
-		useConfig any
-	}{
-		{label: "success-pass-validation", wantErr: nil, useReport: MockReport{High: 5, Low: 6}, useConfig: MockConfig{High: 10, Low: 10}},
-		{label: "success-fail-validation", wantErr: ErrValidation, useReport: MockReport{High: 5, Low: 6}, useConfig: MockConfig{High: 0, Low: 0}},
-		{label: "invalid-report", wantErr: ErrValidation, useReport: MockConfig{High: 5, Low: 6}, useConfig: MockConfig{High: 0, Low: 0}},
-		{label: "invalid-config", wantErr: ErrValidation, useReport: MockReport{High: 5, Low: 6}, useConfig: MockReport{High: 0, Low: 0}},
-	}
+func TestValidate(t *testing.T) {
 
-	for _, testCase := range testTable {
-		t.Run(testCase.label, func(t *testing.T) {
-			validator := NewMockValidator()
+	validator := NewValidator[MockReport, MockConfig]("report",
+		gce.NewJSONWriterDecoder[MockReport]("Mock Report", func(mr *MockReport) error { return nil }),
+		mockReportValidateFunc)
 
-			err := validator.Validate(testCase.useReport, testCase.useConfig)
-			if !errors.Is(err, testCase.wantErr) {
-				t.Fatalf("want: %v got: %v", testCase.wantErr, err)
-			}
-		})
-	}
-}
+	report := &MockReport{ValueA: 10}
 
-func TestNewValidatorWithDecode(t *testing.T) {
-	testTable := []struct {
-		label            string
-		wantErr          error
-		useReportDecoder WriterDecoder
-		useConfigDecoder WriterDecoder
-		useReport        *MockReport
-		useConfig        *MockConfig
-	}{
-		{label: "success", wantErr: nil, useReportDecoder: &mockWriterDecoder[MockReport]{}, useConfigDecoder: &mockWriterDecoder[MockConfig]{},
-			useReport: &MockReport{High: 5, Low: 6}, useConfig: &MockConfig{High: 10, Low: 10},
-		},
-		{label: "invalid-report", wantErr: ErrValidation, useReportDecoder: &mockWriterDecoder[MockConfig]{}, useConfigDecoder: &mockWriterDecoder[MockConfig]{},
-			useReport: &MockReport{High: 5, Low: 6}, useConfig: &MockConfig{High: 10, Low: 10},
-		},
-		{label: "invalid-config", wantErr: ErrValidation, useReportDecoder: &mockWriterDecoder[MockReport]{}, useConfigDecoder: &mockWriterDecoder[MockReport]{},
-			useReport: &MockReport{High: 5, Low: 6}, useConfig: &MockConfig{High: 10, Low: 10},
-		},
-	}
+	t.Run("success-fail-validation", func(t *testing.T) {
+		config := &MockConfig{ValueALimit: 5}
 
-	for _, testCase := range testTable {
-		t.Run(testCase.label, func(t *testing.T) {
-			validator := NewMockValidator().WithDecoders(testCase.useReportDecoder, testCase.useConfigDecoder)
+		configReader := bytes.NewBuffer(MarshalConfig("report", config, t))
 
-			err := validator.ValidateFrom(jsonReader(testCase.useReport), jsonReader(testCase.useConfig))
-			if !errors.Is(err, testCase.wantErr) {
-				t.Fatalf("want: %v got: %v", testCase.wantErr, err)
-			}
-		})
-	}
-}
+		err := validator.Validate(report, configReader)
+		if !errors.Is(err, ErrValidation) {
+			t.Fatalf("want: %v got: %v", ErrValidation, err)
+		}
+	})
+	t.Run("success-pass-validation", func(t *testing.T) {
+		config := &MockConfig{ValueALimit: 15}
 
-func jsonReader(v any) io.Reader {
-	buf := new(bytes.Buffer)
-	_ = json.NewEncoder(buf).Encode(v)
-	return buf
-}
+		configReader := bytes.NewBuffer(MarshalConfig("report", config, t))
 
-type mockWriterDecoder[T any] struct {
-	bytes.Buffer
-}
+		err := validator.Validate(report, configReader)
+		if !errors.Is(err, nil) {
+			t.Fatalf("want: %v got: %v", ErrValidation, err)
+		}
+	})
 
-func (m *mockWriterDecoder[T]) Decode() (any, error) {
-	obj := new(T)
-	err := json.NewDecoder(m).Decode(obj)
-	return obj, err
-}
+	t.Run("validate-from", func(t *testing.T) {
+		config := &MockConfig{ValueALimit: 15}
 
-func NewMockValidator() *Validator[MockReport, MockConfig] {
-	return NewValidator[MockReport, MockConfig](mockValidate)
+		configReader := bytes.NewBuffer(MarshalConfig("report", config, t))
+		reportReader := bytes.NewBuffer(MustMarshalJSON(report, t))
+
+		err := validator.ValidateFrom(reportReader, configReader)
+		if !errors.Is(err, nil) {
+			t.Fatalf("want: %v got: %v", ErrValidation, err)
+		}
+	})
+
+	t.Run("bad-decode-obj", func(t *testing.T) {
+		err := validator.ValidateFrom(strings.NewReader("{{{"), strings.NewReader("{{["))
+		if !errors.Is(err, ErrInput) {
+			t.Fatalf("want: %v got: %v", ErrInput, err)
+		}
+	})
+
+	t.Run("bad-decode-config", func(t *testing.T) {
+		err := validator.Validate(report, strings.NewReader("{{["))
+		if !errors.Is(err, ErrConfig) {
+			t.Fatalf("want: %v got: %v", ErrConfig, err)
+		}
+	})
+
+	t.Run("missing-config", func(t *testing.T) {
+		config := &MockConfig{ValueALimit: 15}
+		configReader := bytes.NewBuffer(MarshalConfig("another-field-not-report", config, t))
+		err := validator.Validate(report, configReader)
+		if !errors.Is(err, ErrConfig) {
+			t.Fatalf("want: %v got: %v", ErrConfig, err)
+		}
+	})
+
+	t.Run("invalid-config-obj", func(t *testing.T) {
+
+		badObj := make(map[string]bool)
+		badObj["value"] = true
+		objectReader := bytes.NewBuffer(MarshalConfig("report", badObj, t))
+
+		config := &MockConfig{ValueALimit: 15}
+		configReader := bytes.NewBuffer(MarshalConfig("report", config, t))
+
+		err := validator.Validate(objectReader, configReader)
+		if !errors.Is(err, ErrInput) {
+			t.Fatalf("want: %v got: %v", ErrInput, err)
+		}
+
+	})
+
 }
 
 type MockReport struct {
-	High int
-	Low  int
+	ValueA int
 }
 
 type MockConfig struct {
-	High int
-	Low  int
+	ValueALimit int `yaml:"valueALimit"`
 }
 
-func mockValidate(r MockReport, c MockConfig) error {
-	if r.High > c.High || r.Low > c.Low {
+func mockReportValidateFunc(r MockReport, c MockConfig) error {
+	if r.ValueA > c.ValueALimit {
 		return ErrValidation
 	}
 	return nil
+}
+
+func MustMarshalJSON(v any, t *testing.T) []byte {
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+func MarshalConfig(fieldname string, v any, t *testing.T) []byte {
+	configMap := make(map[string]any)
+	configMap[fieldname] = v
+
+	b, err := yaml.Marshal(configMap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
 }

@@ -5,7 +5,7 @@ ifeq (, $(shell which richgo))
 $(warning "could not find richgo in $(PATH), run: go install github.com/kyoh86/richgo@latest")
 endif
 
-.PHONY: fmt test install_deps clean
+.PHONY: fmt test install_deps clean coverage ocov
 
 default: all
 
@@ -27,6 +27,9 @@ test: install_deps
 coverage:
 	$(info ******************** running test coverage ********************)
 	go test -coverprofile cover.cov ./...
+
+ocov: coverage
+	go tool cover -html=cover.cov
 
 
 install_deps:
