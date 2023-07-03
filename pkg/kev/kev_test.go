@@ -2,10 +2,12 @@ package kev
 
 import (
 	"bytes"
+	"errors"
 	"testing"
 
 	"github.com/anchore/grype/grype/presenter/models"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/grype"
+	gce "github.com/gatecheckdev/gatecheck/pkg/encoding"
 )
 
 func TestVulnerabilities(t *testing.T) {
@@ -49,5 +51,26 @@ func TestVulnerabilities(t *testing.T) {
 			t.Fatal("False positives found")
 		}
 	})
+
+}
+
+func TestCheck(t *testing.T) {
+	testTable := []struct {
+		label      string
+		wantErr    error
+		useCatalog *Catalog
+	}{
+		{label: "success", wantErr: nil, useCatalog: &Catalog{Title: "some title", CatalogVersion: "v1", Vulnerabilities: []Vulnerability{{CveID: "abc1"}, {CveID: "abc2"}}}},
+		{label: "nil-catalog", wantErr: gce.ErrFailedCheck, useCatalog: nil},
+		{label: "no-title", wantErr: gce.ErrFailedCheck, useCatalog: &Catalog{Title: ""}},
+		{label: "no-catalog-version", wantErr: gce.ErrFailedCheck, useCatalog: &Catalog{Title: "a", CatalogVersion: ""}},
+		{label: "no-catalog-vulnerabilities", wantErr: gce.ErrFailedCheck, useCatalog: &Catalog{Title: "a", CatalogVersion: "a", Vulnerabilities: []Vulnerability{}}},
+	}
+
+	for _, testCase := range testTable {
+		if err := check(testCase.useCatalog); !errors.Is(err, testCase.wantErr) {
+			t.Fatalf("want: %v got: %v", testCase.wantErr, err)
+		}
+	}
 
 }

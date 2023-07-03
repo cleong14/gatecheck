@@ -16,7 +16,8 @@ import (
 const TestReport string = "../../../test/gitleaks-report.json"
 
 func TestEncoding_success(t *testing.T) {
-	obj, err := NewReportDecoder().DecodeFrom(MustOpen(TestReport, t))
+	decoder := NewReportDecoder()
+	obj, err := decoder.DecodeFrom(MustOpen(TestReport, t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,6 +30,7 @@ func TestEncoding_success(t *testing.T) {
 	}
 
 	t.Log(report.String())
+	t.Log(decoder.FileType())
 	if !strings.Contains(report.String(), "generic-api-key") {
 		t.Fatal("'generic-api-key' should exist in string")
 	}

@@ -55,7 +55,7 @@ func (d *AsyncDecoder) Decode() (any, error) {
 		wg.Add(1)
 		_, err := reader.WriteTo(d.decoders[i])
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%w: %v", ErrIO, err)
 		}
 		reader.Seek(0, 0)
 		go func(decoder WriterDecoder) {

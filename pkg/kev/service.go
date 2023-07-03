@@ -26,7 +26,7 @@ func NewServiceFromFile(r io.Reader) (*Service, error) {
 	service := new(Service)
 	obj, err := decoder.DecodeFrom(r)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %v", gce.ErrIO, err)
 	}
 	service.catalog = *obj.(*Catalog)
 	return service, nil

@@ -29,8 +29,9 @@ func TestCSVDecoder(t *testing.T) {
 		if err == nil {
 			t.Logf("%+v", obj.(*Catalog).Vulnerabilities[:10])
 		}
-
 	}
+
+	t.Log(NewCSVDecoder().FileType())
 }
 
 type badReader struct{}

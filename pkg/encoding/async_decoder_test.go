@@ -3,6 +3,9 @@ package encoding
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"io"
+	"strings"
 	"testing"
 )
 
@@ -22,7 +25,7 @@ func TestAsyncDecoder(t *testing.T) {
 			t.Fatalf("Got Type %T", obj)
 		}
 		if hero.Name != wantHero.Name {
-			t.Fatalf("got: %v want: %v", hero, wantHero)
+			t.Fatalf("want: %v got: %v", wantHero, hero)
 		}
 
 		_ = json.NewEncoder(cityBuf).Encode(wantCity)
@@ -35,10 +38,66 @@ func TestAsyncDecoder(t *testing.T) {
 			t.Fatalf("Got Type %T", obj)
 		}
 		if city.Name != wantCity.Name {
-			t.Fatalf("got: %v want: %v", hero, wantCity)
+			t.Fatalf("want: %v got: %v", wantCity, city)
 		}
 	})
 
+	t.Run("bad-reader", func(t *testing.T) {
+		_, err := NewAsyncDecoder().DecodeFrom(&badReader{})
+		if !errors.Is(err, ErrIO) {
+			t.Fatalf("want: %v got: %v", ErrIO, err)
+		}
+		_, err = NewAsyncDecoder(&badDecoder{}).DecodeFrom(strings.NewReader("Content"))
+		if !errors.Is(err, ErrIO) {
+			t.Fatalf("want: %v got: %v", ErrIO, err)
+			errors.Join()
+		}
+	})
+
+	t.Run("no-decoders", func(t *testing.T) {
+		_, err := NewAsyncDecoder().DecodeFrom(strings.NewReader("Content"))
+		if !errors.Is(err, ErrEncoding) {
+			t.Fatalf("want: %v got: %v", ErrEncoding, err)
+		}
+
+		if NewAsyncDecoder().FileType() != "?" {
+			t.Fatal()
+		}
+	})
+
+	t.Run("generic", func(t *testing.T) {
+
+		decoder := NewAsyncDecoder(newHeroDecoder())
+		_, err := decoder.DecodeFrom(strings.NewReader("Content"))
+		if !errors.Is(err, ErrEncoding) {
+			t.Fatalf("want: %v got: %v", ErrEncoding, err)
+		}
+		if decoder.FileType() != "Generic" {
+			t.Fatalf("want: %v got: %v", "Generic", decoder.FileType())
+		}
+	})
+
+}
+
+type badReader struct{}
+
+func (r *badReader) Read(_ []byte) (int, error) {
+	return 0, errors.New("Mock Read error")
+}
+
+type badDecoder struct{}
+
+func (d *badDecoder) Write(_ []byte) (int, error) {
+	return 0, errors.New("Mock Read error")
+}
+func (d *badDecoder) Decode() (any, error) {
+	return nil, nil
+}
+func (d *badDecoder) DecodeFrom(_ io.Reader) (any, error) {
+	return nil, nil
+}
+func (d *badDecoder) FileType() string {
+	return "bad decoder"
 }
 
 type Hero struct {
