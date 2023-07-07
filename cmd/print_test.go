@@ -44,6 +44,17 @@ func Test_PrintCommand(t *testing.T) {
 		}
 		t.Log(out)
 	})
+	t.Run("cyclonedx", func(t *testing.T) {
+		f := MustOpen(cyclonedxTestReport, t)
+		out, err := Execute("print "+f.Name(), config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(out, "library") == false {
+			t.Fatal("'Library' not contained in", out)
+		}
+		t.Log(out)
+	})
 
 	t.Run("multiple-files-and-piped-input", func(t *testing.T) {
 		t.Run("success", func(t *testing.T) {
@@ -93,4 +104,3 @@ func Test_PrintCommand(t *testing.T) {
 	})
 
 }
-

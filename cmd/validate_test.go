@@ -11,7 +11,9 @@ import (
 	"time"
 
 	gosemgrep "github.com/BacchusJackson/go-semgrep"
+	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/anchore/grype/grype/presenter/models"
+	"github.com/gatecheckdev/gatecheck/pkg/artifacts/cyclonedx"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/gitleaks"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/grype"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/semgrep"
@@ -200,12 +202,28 @@ func TestValidateCmd(t *testing.T) {
 	gitleaksConfigPass := gitleaks.Config{SecretsAllowed: true}
 	gitleaksConfigFail := gitleaks.Config{SecretsAllowed: false}
 
+	o, _ := cyclonedx.NewReportDecoder().DecodeFrom(MustOpen(cyclonedxTestReport, t))
+	cyclonedxReport := o.(*cyclonedx.ScanReport)
+	cyclonedxReport.Vulnerabilities = &[]cdx.Vulnerability{
+		{ID: "CVE-2023-1", Ratings: &[]cdx.VulnerabilityRating{{Severity: cdx.SeverityCritical}}, Affects: &[]cdx.Affects{{Ref: "CVE-2023-1-ref"}}},
+		{ID: "CVE-2023-2", Ratings: &[]cdx.VulnerabilityRating{{Severity: cdx.SeverityCritical}}, Affects: &[]cdx.Affects{{Ref: "CVE-2023-3-ref"}}},
+	}
+	cyclonedxReport.Components = &[]cdx.Component{
+		{BOMRef: "CVE-2023-1-ref", Name: "CVE-2023-1-name", Version: "CVE-2023-1-version", Type: cdx.ComponentTypeLibrary},
+	}
+
+	cyclondexConfigPass := cyclonedx.Config{Critical: -1, High: -1, Medium: -1, Low: -1, Info: -1, None: -1, Unknown: -1}
+	cyclondexConfigFail := cyclonedx.Config{Critical: 0, High: 0, Medium: -1, Low: -1, Info: -1, None: -1, Unknown: -1}
+
 	semgrepFilename := writeTempAny(&semgrepReport, t)
 	grypeFilename := writeTempAny(&grypeReport, t)
 	gitleaksFilename := writeTempAny(&gitleaksReport, t)
+	cyclonedxFilename := writeTempAny(&cyclonedxReport, t)
 
-	configPass := map[string]any{grype.ConfigFieldName: grypeConfigPass, semgrep.ConfigFieldName: semgrepConfigPass, gitleaks.ConfigFieldName: gitleaksConfigPass}
-	configFail := map[string]any{grype.ConfigFieldName: grypeConfigFail, semgrep.ConfigFieldName: semgrepConfigFail, gitleaks.ConfigFieldName: gitleaksConfigFail}
+	configPass := map[string]any{grype.ConfigFieldName: grypeConfigPass, semgrep.ConfigFieldName: semgrepConfigPass, gitleaks.ConfigFieldName: gitleaksConfigPass,
+		cyclonedx.ConfigFieldName: cyclondexConfigPass}
+	configFail := map[string]any{grype.ConfigFieldName: grypeConfigFail, semgrep.ConfigFieldName: semgrepConfigFail, gitleaks.ConfigFieldName: gitleaksConfigFail,
+		cyclonedx.ConfigFieldName: cyclondexConfigFail}
 
 	configPassFilename := writeTempConfig(configPass, t)
 	configFailFilename := writeTempConfig(configFail, t)
@@ -218,10 +236,16 @@ func TestValidateCmd(t *testing.T) {
 	}{
 		{label: "grype-pass", wantErr: nil, reportFunc: fileFunc(grypeFilename), configFunc: fileFunc(configPassFilename)},
 		{label: "grype-fail", wantErr: ErrorValidation, reportFunc: fileFunc(grypeFilename), configFunc: fileFunc(configFailFilename)},
+
 		{label: "semgrep-pass", wantErr: nil, reportFunc: fileFunc(semgrepFilename), configFunc: fileFunc(configPassFilename)},
 		{label: "semgrep-fail", wantErr: ErrorValidation, reportFunc: fileFunc(semgrepFilename), configFunc: fileFunc(configFailFilename)},
+
 		{label: "gitleaks-pass", wantErr: nil, reportFunc: fileFunc(gitleaksFilename), configFunc: fileFunc(configPassFilename)},
 		{label: "gitleaks-fail", wantErr: ErrorValidation, reportFunc: fileFunc(gitleaksFilename), configFunc: fileFunc(configFailFilename)},
+
+		{label: "cyclonedx-pass", wantErr: nil, reportFunc: fileFunc(cyclonedxFilename), configFunc: fileFunc(configPassFilename)},
+		{label: "cyclonedx-fail", wantErr: ErrorValidation, reportFunc: fileFunc(cyclonedxFilename), configFunc: fileFunc(configFailFilename)},
+
 		{label: "bad-object-file", wantErr: ErrorFileAccess, reportFunc: fileWithBadPermissions, configFunc: fileWithBadPermissions},
 		{label: "bad-config-file", wantErr: ErrorFileAccess, reportFunc: fileFunc(grypeTestReport), configFunc: fileWithBadPermissions},
 		{label: "decode-error", wantErr: ErrorEncoding, reportFunc: fileWithBadJSON, configFunc: fileFunc(configPassFilename)},
@@ -249,6 +273,7 @@ func NewAsyncDecoder() AsyncDecoder {
 		grype.NewReportDecoder(),
 		semgrep.NewReportDecoder(),
 		gitleaks.NewReportDecoder(),
+		cyclonedx.NewReportDecoder(),
 	)
 }
 

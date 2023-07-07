@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -72,10 +71,11 @@ func NewExportCmd(
 			}
 
 			if ddScanType != defectdojo.CycloneDX && fullBom {
-				return errors.New("--full-bom is only permitted with a CycloneDx file")
+				return fmt.Errorf("%w: --full-bom is only permitted with a CycloneDx file", ErrorUserInput)
 			}
 
 			if fullBom {
+				log.Info("Shimming components as vulnerabilities with 'none' severity")
 				report := obj.(*cyclonedx.ScanReport)
 				report = report.ShimComponentsAsVulnerabilities()
 				exportBuf = new(bytes.Buffer)

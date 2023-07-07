@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gatecheckdev/gatecheck/pkg/artifacts/cyclonedx"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/gitleaks"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/grype"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/semgrep"
@@ -23,6 +24,7 @@ func TestNewExport_DDCmd(t *testing.T) {
 			MustOpen(grypeTestReport, t),
 			MustOpen(semgrepTestReport, t),
 			MustOpen(gitleaksTestReport, t),
+			MustOpen(cyclonedxTestReport, t),
 		}
 
 		for _, v := range files {
@@ -41,6 +43,28 @@ func TestNewExport_DDCmd(t *testing.T) {
 		}
 	})
 
+	t.Run("defectdojo-full-bom", func(t *testing.T) {
+
+		config := CLIConfig{DDExportService: mockDDExportService{exportResponse: nil},
+			NewAsyncDecoderFunc: AsyncDecoderFunc, DDExportTimeout: time.Second * 3}
+
+		commandString := fmt.Sprintf("export dd --full-bom %s", MustOpen(cyclonedxTestReport, t).Name())
+		out, err := Execute(commandString, config)
+		if err != nil {
+			t.Log(out)
+			t.Fatal(err)
+		}
+		t.Run("invalid", func(t *testing.T) {
+
+			commandString := fmt.Sprintf("export dd --full-bom %s", MustOpen(grypeTestReport, t).Name())
+			out, err := Execute(commandString, config)
+			if !errors.Is(err, ErrorUserInput) {
+				t.Log(out)
+				t.Fatalf("want: %v got: %v", ErrorUserInput, err)
+			}
+		})
+
+	})
 
 	t.Run("defectdojo-bad-file", func(t *testing.T) {
 		commandString := fmt.Sprintf("export dd %s", fileWithBadPermissions(t))
@@ -123,6 +147,7 @@ func AsyncDecoderFunc() AsyncDecoder {
 		grype.NewReportDecoder(),
 		semgrep.NewReportDecoder(),
 		gitleaks.NewReportDecoder(),
+		cyclonedx.NewReportDecoder(),
 	)
 
 	return decoder
