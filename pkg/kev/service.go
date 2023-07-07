@@ -9,7 +9,7 @@ import (
 
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/grype"
 	gce "github.com/gatecheckdev/gatecheck/pkg/encoding"
-	gcs "github.com/gatecheckdev/gatecheck/pkg/strings"
+	"github.com/gatecheckdev/gatecheck/pkg/format"
 )
 
 var ErrAPI = errors.New("API Query failed")
@@ -85,14 +85,16 @@ func (s *Service) WriteTo(w io.Writer) (int64, error) {
 		return strings.NewReader(sb.String()).WriteTo(w)
 	}
 
-	table := new(gcs.Table).WithHeader("CVE ID", "Date Added", "CVE.org Link", "Vulnerability Name")
+	table := format.NewTable()
+	table.AppendRow("CVE ID", "Date Added", "CVE.org Link", "Vulnerability Name")
 
 	for _, value := range s.matchedVulnerabilites {
 		link := fmt.Sprintf(CVERecordURL, value.CveID)
-		table = table.WithRow(value.CveID, value.DateAdded, link, value.VulnerabilityName)
+		table.AppendRow(value.CveID, value.DateAdded, link, value.VulnerabilityName)
 
 	}
 
-	sb.WriteString(table.String())
+	sb.WriteString(format.NewTableWriter(table).String())
+
 	return strings.NewReader(sb.String()).WriteTo(w)
 }

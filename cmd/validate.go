@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/gatecheckdev/gatecheck/internal/log"
+	"github.com/gatecheckdev/gatecheck/pkg/artifacts/cyclonedx"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/gitleaks"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/grype"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/semgrep"
@@ -70,6 +71,8 @@ func NewValidateCmd(newAsyncDecoder func() AsyncDecoder, KEVDownloadURL string, 
 				validator = semgrep.NewValidator()
 			case *gitleaks.ScanReport:
 				validator = gitleaks.NewValidator()
+			case *cyclonedx.ScanReport:
+				validator = cyclonedx.NewValidator()
 			}
 
 			validationError = validator.Validate(obj, configFile)

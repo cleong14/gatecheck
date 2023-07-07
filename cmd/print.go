@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/gatecheckdev/gatecheck/internal/log"
+	"github.com/gatecheckdev/gatecheck/pkg/artifacts/cyclonedx"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/gitleaks"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/grype"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/semgrep"
@@ -53,6 +54,8 @@ func printArtifact(w io.Writer, v any, newDecoder func() AsyncDecoder) {
 		outputString = v.(*semgrep.ScanReport).String()
 	case *gitleaks.ScanReport:
 		outputString = v.(*gitleaks.ScanReport).String()
+	case *cyclonedx.ScanReport:
+		outputString = v.(*cyclonedx.ScanReport).String()
 	}
 
 	_, _ = strings.NewReader(outputString).WriteTo(w)

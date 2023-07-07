@@ -28,7 +28,7 @@ func TestEncoding_success(t *testing.T) {
 		t.Fatalf("want: <10 got: %d", len(grypeReport.Matches))
 	}
 
-	t.Log(grypeReport.String())
+	t.Log("\n" + grypeReport.String())
 	if !strings.Contains(grypeReport.String(), "curl") {
 		t.Fatal("'curl' should exist in string")
 	}

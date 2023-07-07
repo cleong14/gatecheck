@@ -13,6 +13,7 @@ import (
 
 	"github.com/gatecheckdev/gatecheck/cmd"
 	"github.com/gatecheckdev/gatecheck/internal/log"
+	"github.com/gatecheckdev/gatecheck/pkg/artifacts/cyclonedx"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/gitleaks"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/grype"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/semgrep"
@@ -110,6 +111,7 @@ func AsyncDecoderFunc() cmd.AsyncDecoder {
 		grype.NewReportDecoder(),
 		semgrep.NewReportDecoder(),
 		gitleaks.NewReportDecoder(),
+		cyclonedx.NewReportDecoder(),
 	)
 
 	return decoder

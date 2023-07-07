@@ -7,7 +7,7 @@ import (
 	semgrep "github.com/BacchusJackson/go-semgrep"
 	"github.com/gatecheckdev/gatecheck/internal/log"
 	gce "github.com/gatecheckdev/gatecheck/pkg/encoding"
-	gcs "github.com/gatecheckdev/gatecheck/pkg/strings"
+	"github.com/gatecheckdev/gatecheck/pkg/format"
 	gcv "github.com/gatecheckdev/gatecheck/pkg/validate"
 )
 
@@ -19,24 +19,27 @@ const ConfigFieldName = "semgrep"
 type ScanReport semgrep.SemgrepOutputV1Jsonschema
 
 func (r ScanReport) String() string {
-	table := new(gcs.Table).WithHeader("Path", "Line", "Level", "link", "CWE Message")
+	table := format.NewTable()
+	table.AppendRow("Path", "Line", "Level", "link", "CWE Message")
 
 	for _, item := range r.Results {
 		line := fmt.Sprintf("%d", item.Start.Line)
 		// Attempt type assertion on metadata since it's an interface{}
 		metadata, ok := item.Extra.Metadata.(map[string]interface{})
 		if ok != true {
-			table = table.WithRow(gcs.ClipLeft(item.Path, 30), line, item.Extra.Severity, "", "")
+			table.AppendRow(format.Summarize(item.Path, 30, format.ClipLeft), line, item.Extra.Severity, "", "")
 			continue
 		}
 
 		link := fmt.Sprintf("%v", metadata["shortlink"])
 		cwe := fmt.Sprintf("%v", metadata["cwe"])
-		path := gcs.ClipRight(item.Path, 30)
-		table = table.WithRow(path, line, item.Extra.Severity, cwe, link)
+		path := format.Summarize(item.Path, 30, format.ClipRight)
+		table.AppendRow(path, line, item.Extra.Severity, cwe, link)
 	}
 
-	return table.String()
+	table.SetSort(2, format.NewCatagoricLess([]string{"ERROR", "WARNING", "INFO"}))
+
+	return format.NewTableWriter(table).String()
 }
 
 func NewReportDecoder() *gce.JSONWriterDecoder[ScanReport] {
@@ -91,7 +94,7 @@ func validateFunc(scanReport ScanReport, config Config) error {
 		}
 	}
 
-	log.Infof("Semgrep Findings: %v", gcs.PrettyPrintMap(found))
+	log.Infof("Semgrep Findings: %v", format.PrettyPrintMap(found))
 	if len(errStrings) == 0 {
 		return nil
 	}

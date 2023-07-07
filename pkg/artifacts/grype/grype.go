@@ -2,37 +2,34 @@ package grype
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/anchore/grype/grype/presenter/models"
 	"github.com/gatecheckdev/gatecheck/internal/log"
 	gce "github.com/gatecheckdev/gatecheck/pkg/encoding"
-	gcs "github.com/gatecheckdev/gatecheck/pkg/strings"
+	"github.com/gatecheckdev/gatecheck/pkg/format"
 	gcv "github.com/gatecheckdev/gatecheck/pkg/validate"
 )
 
 const ReportType = "Anchore Grype Scan Report"
-const ConfigType = "Anchore Grype Config"
 const ConfigFieldName = "grype"
 
 type ScanReport models.Document
 
 func (r *ScanReport) String() string {
-	table := new(gcs.Table).WithHeader("Severity", "Package", "Version", "Link")
+	table := format.NewTable()
+	table.AppendRow("Severity", "Package", "Version", "Link")
 
 	for _, item := range r.Matches {
-		table = table.WithRow(item.Vulnerability.Severity,
-			item.Artifact.Name, item.Artifact.Version, item.Vulnerability.DataSource)
+		table.AppendRow(item.Vulnerability.Severity, item.Artifact.Name, item.Artifact.Version, item.Vulnerability.DataSource)
 	}
 
-	// Sort the rows by Severity then Package
-	severitiesOrder := gcs.StrOrder{"Critical", "High", "Medium", "Low", "Negligible", "Unknown"}
-	table = table.SortBy([]gcs.SortBy{
-		{Name: "Severity", Mode: gcs.AscCustom, Order: severitiesOrder},
-		{Name: "Package", Mode: gcs.Asc},
-	}).Sort()
+	table.SetSort(0, format.NewCatagoricLess([]string{"Critical", "High", "Medium", "Low", "Negligible", "Unknown"}))
 
-	return table.String()
+	sort.Sort(table)
+
+	return format.NewTableWriter(table).String()
 }
 
 type Config struct {
@@ -99,7 +96,7 @@ LOOPMATCH:
 
 		found[match.Vulnerability.Severity] += 1
 	}
-	log.Infof("Grype Findings: %v", gcs.PrettyPrintMap(found))
+	log.Infof("Grype Findings: %v", format.PrettyPrintMap(found))
 
 	var errStrings []string
 

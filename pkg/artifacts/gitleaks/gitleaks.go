@@ -8,7 +8,7 @@ import (
 
 	"github.com/gatecheckdev/gatecheck/internal/log"
 	gce "github.com/gatecheckdev/gatecheck/pkg/encoding"
-	gcs "github.com/gatecheckdev/gatecheck/pkg/strings"
+	"github.com/gatecheckdev/gatecheck/pkg/format"
 	gcv "github.com/gatecheckdev/gatecheck/pkg/validate"
 	"github.com/zricethezav/gitleaks/v8/report"
 )
@@ -22,12 +22,13 @@ type Finding report.Finding
 type ScanReport []Finding
 
 func (r ScanReport) String() string {
-	table := new(gcs.Table).WithHeader("Rule", "File", "Secret", "Commit")
+	table := format.NewTable()
+	table.AppendRow("Rule", "File", "secret", "Commit")
 	for _, finding := range r {
-		secret := gcs.ClipLeft(finding.Secret, 50)
-		table = table.WithRow(finding.RuleID, finding.File, secret, finding.Commit)
+		secret := format.Summarize(finding.Secret, 50, format.ClipLeft)
+		table.AppendRow(finding.RuleID, finding.File, secret, finding.Commit)
 	}
-	return table.String()
+	return format.NewTableWriter(table).String()
 }
 
 type Config struct {

@@ -3,12 +3,15 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"time"
 
 	"github.com/gatecheckdev/gatecheck/internal/log"
+	"github.com/gatecheckdev/gatecheck/pkg/artifacts/cyclonedx"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/gitleaks"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/grype"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/semgrep"
@@ -37,8 +40,8 @@ func NewExportCmd(
 		Aliases: []string{"dd"},
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// fullBom, _ := cmd.Flags().GetBool("full-bom")
-			// Open the file
+			fullBom, _ := cmd.Flags().GetBool("full-bom")
+
 			log.Infof("Opening file: %s", args[0])
 			f, err := os.Open(args[0])
 			if err != nil {
@@ -62,19 +65,22 @@ func NewExportCmd(
 				ddScanType = defectdojo.Semgrep
 			case *gitleaks.ScanReport:
 				ddScanType = defectdojo.Gitleaks
+			case *cyclonedx.ScanReport:
+				ddScanType = defectdojo.CycloneDX
 			default:
 				return fmt.Errorf("%w: Unsupported file type", ErrorEncoding)
 			}
 
-			// if rType != artifact.Cyclonedx && fullBom {
-			// 	return errors.New("--full-bom is only permitted with a CycloneDx file")
-			// }
+			if ddScanType != defectdojo.CycloneDX && fullBom {
+				return errors.New("--full-bom is only permitted with a CycloneDx file")
+			}
 
-			// if fullBom {
-			// 	buf := bytes.NewBuffer(fileBytes)
-			// 	c := artifact.DecodeJSONOld[artifact.CyclonedxSbomReport](buf)
-			// 	fileBytes, _ = json.Marshal(c.ShimComponentsAsVulnerabilities())
-			// }
+			if fullBom {
+				report := obj.(*cyclonedx.ScanReport)
+				report = report.ShimComponentsAsVulnerabilities()
+				exportBuf = new(bytes.Buffer)
+				_ = json.NewEncoder(exportBuf).Encode(report)
+			}
 
 			ctx, cancel := context.WithTimeout(context.Background(), ddTimeout)
 			defer cancel()

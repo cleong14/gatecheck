@@ -7,14 +7,14 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gatecheckdev/gatecheck/internal/log"
-
-	gcStrings "github.com/gatecheckdev/gatecheck/pkg/strings"
+	"github.com/gatecheckdev/gatecheck/pkg/format"
 )
 
 type response struct {
@@ -81,7 +81,9 @@ func (s Service) WriteCSV(w io.Writer, url string) (int64, error) {
 
 // WriteEPSS will write probability and percentile scores to each element in input querying on the ID field
 func (s Service) WriteEPSS(input []CVE) error {
-	defer func(started time.Time) { log.Infof("WriteEPSS for %d CVEs completed in %s", len(input), time.Since(started).String()) }(time.Now())
+	defer func(started time.Time) {
+		log.Infof("WriteEPSS for %d CVEs completed in %s", len(input), time.Since(started).String())
+	}(time.Now())
 
 	if len(input) == 0 || input == nil {
 		return nil
@@ -163,20 +165,20 @@ func executeQuery(s Service, input []CVE, errChan chan error, wg *sync.WaitGroup
 
 func Sprint(input []CVE) string {
 
-	table := new(gcStrings.Table).WithHeader("CVE", "Severity", "EPSS", "Percentile", "Date", "Link")
+	table := format.NewTable()
+
+	table.AppendRow("CVE", "Severity", "EPSS", "Percentile", "Date", "Link")
 
 	percentage := func(f float64) string {
 		return fmt.Sprintf("%.2f%%", 100*f)
 	}
 
 	for _, cve := range input {
-		table = table.WithRow(cve.ID, cve.Severity, percentage(cve.Probability), percentage(cve.Percentile), cve.ScoreDate.Format("2006-01-02"), cve.Link)
+		table.AppendRow(cve.ID, cve.Severity, percentage(cve.Probability), percentage(cve.Percentile), cve.ScoreDate.Format("2006-01-02"), cve.Link)
 	}
 
-	// Dsc because EPSS has been converted into a percentage
-	table = table.SortBy([]gcStrings.SortBy{
-		{Name: "EPSS", Mode: gcStrings.Dsc},
-	}).Sort()
+	table.Select(2)
+	sort.Sort(table)
 
-	return table.String()
+	return format.NewTableWriter(table).String()
 }
