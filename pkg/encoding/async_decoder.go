@@ -7,6 +7,8 @@ import (
 	"sync"
 )
 
+const GenericFileType string = "Generic"
+
 type WriterDecoder interface {
 	io.Writer
 	Decode() (any, error)
@@ -78,7 +80,7 @@ func (d *AsyncDecoder) Decode() (any, error) {
 	select {
 	// All decoders finished before one was successful
 	case <-doneChan:
-		d.fileType = "Generic"
+		d.fileType = GenericFileType
 		return nil, fmt.Errorf("%w: All decoders failed", ErrEncoding)
 	// One of the decoders were able to successfully decode
 	case obj := <-objChan:

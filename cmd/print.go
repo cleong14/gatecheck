@@ -6,11 +6,14 @@ import (
 	"os"
 	"strings"
 
+	"github.com/dustin/go-humanize"
 	"github.com/gatecheckdev/gatecheck/internal/log"
+	"github.com/gatecheckdev/gatecheck/pkg/archive"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/cyclonedx"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/gitleaks"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/grype"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/semgrep"
+	"github.com/gatecheckdev/gatecheck/pkg/format"
 	"github.com/spf13/cobra"
 )
 
@@ -56,8 +59,37 @@ func printArtifact(w io.Writer, v any, newDecoder func() AsyncDecoder) {
 		outputString = v.(*gitleaks.ScanReport).String()
 	case *cyclonedx.ScanReport:
 		outputString = v.(*cyclonedx.ScanReport).String()
+	case *archive.Bundle:
+		printBundleContentTable(w, v.(*archive.Bundle), newDecoder)
+		return
 	}
 
 	_, _ = strings.NewReader(outputString).WriteTo(w)
 
+}
+
+func printBundleContentTable(w io.Writer, bundle *archive.Bundle, newDecoder func() AsyncDecoder) {
+
+	table := format.NewTable()
+	table.AppendRow("Type", "Label", "Digest", "Size")
+
+	for label, descriptor := range bundle.Manifest().Files {
+		decoder := newDecoder()
+		_, _ = bundle.WriteFileTo(decoder, label)
+		obj, _ := decoder.Decode()
+		typeStr := "Generic"
+		fileSize := bundle.FileSize(label)
+		switch obj.(type) {
+		case *grype.ScanReport:
+			typeStr = grype.ReportType
+		case *semgrep.ScanReport:
+			typeStr = semgrep.ReportType
+		case *gitleaks.ScanReport:
+			typeStr = gitleaks.ReportType
+		case *cyclonedx.ScanReport:
+			typeStr = cyclonedx.ReportType
+		}
+		table.AppendRow(typeStr, label, descriptor.Digest, humanize.Bytes(uint64(fileSize)))
+	}
+	_, _ = format.NewTableWriter(table).WriteTo(w)
 }

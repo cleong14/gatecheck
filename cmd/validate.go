@@ -1,16 +1,20 @@
 package cmd
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 
 	"github.com/gatecheckdev/gatecheck/internal/log"
+	"github.com/gatecheckdev/gatecheck/pkg/archive"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/cyclonedx"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/gitleaks"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/grype"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/semgrep"
+	gce "github.com/gatecheckdev/gatecheck/pkg/encoding"
 	"github.com/gatecheckdev/gatecheck/pkg/kev"
 
 	"github.com/spf13/cobra"
@@ -34,6 +38,23 @@ func NewValidateCmd(newAsyncDecoder func() AsyncDecoder, KEVDownloadURL string, 
 			downloadKEVFlag, _ := cmd.Flags().GetBool("fetch-kev")
 			auditFlag, _ := cmd.Flags().GetBool("audit")
 
+			objFile, err := os.Open(args[0])
+			if err != nil {
+				return fmt.Errorf("%w: %v", ErrorFileAccess, err)
+			}
+
+			obj, err := newAsyncDecoder().DecodeFrom(objFile)
+			if err != nil {
+				return fmt.Errorf("%w: %v", ErrorEncoding, err)
+			}
+
+			configFileBytes, err := os.ReadFile(configFilename)
+			if err != nil {
+				return fmt.Errorf("%w: %v", ErrorFileAccess, err)
+			}
+
+			validationError = validateAny(obj, configFileBytes, args[0], newAsyncDecoder)
+
 			checkAuditFlag := func(err error) error {
 				if err != nil && auditFlag {
 					log.Warnf("audit flag detected, supressing error: %v", err)
@@ -45,47 +66,16 @@ func NewValidateCmd(newAsyncDecoder func() AsyncDecoder, KEVDownloadURL string, 
 				return fmt.Errorf("%w: %v", ErrorValidation, err)
 			}
 
-			objFile, err := os.Open(args[0])
-			if err != nil {
-				return fmt.Errorf("%w: %v", ErrorFileAccess, err)
-			}
-
-			obj, err := newAsyncDecoder().DecodeFrom(objFile)
-			if err != nil {
-				return fmt.Errorf("%w: %v", ErrorEncoding, err)
-			}
-
-			configFile, err := os.Open(configFilename)
-			if err != nil {
-				return fmt.Errorf("%w: %v", ErrorFileAccess, err)
-			}
-
-			var validator AnyValidator
-			var grypeReport *grype.ScanReport
-
-			switch obj.(type) {
-			case *grype.ScanReport:
-				validator = grype.NewValidator()
-				grypeReport = obj.(*grype.ScanReport)
-			case *semgrep.ScanReport:
-				validator = semgrep.NewValidator()
-			case *gitleaks.ScanReport:
-				validator = gitleaks.NewValidator()
-			case *cyclonedx.ScanReport:
-				validator = cyclonedx.NewValidator()
-			}
-
-			validationError = validator.Validate(obj, configFile)
-
 			// Return early if no KEV file passed
 			if kevFilename == "" && downloadKEVFlag == false {
 				return checkAuditFlag(validationError)
 			}
-			// Only validate KEV with Grype reports
-			if grypeReport == nil {
+			grypeReport, ok := obj.(*grype.ScanReport)
+			if !ok {
 				return checkAuditFlag(validationError)
 			}
 
+			// Only validate KEV with Grype reports
 			var service *kev.Service
 
 			switch downloadKEVFlag {
@@ -129,4 +119,46 @@ func NewValidateCmd(newAsyncDecoder func() AsyncDecoder, KEVDownloadURL string, 
 	_ = cmd.MarkFlagRequired("config")
 	cmd.MarkFlagsMutuallyExclusive("kev-file", "fetch-kev")
 	return cmd
+}
+
+func validateAny(obj any, configFileBytes []byte, reportFilename string, newAsyncDecoder func() AsyncDecoder) error {
+	// Handle an artifact bundle, will recursively handle each artifact file
+	if bundle, ok := obj.(*archive.Bundle); ok {
+		validationErrors := make(map[string]error, 0)
+		for label := range bundle.Manifest().Files {
+			decoder := newAsyncDecoder()
+			_, _ = bundle.WriteFileTo(decoder, label)
+			obj, _ := decoder.Decode()
+			if decoder.FileType() == gce.GenericFileType {
+				continue
+			}
+			if err := validateAny(obj, configFileBytes, reportFilename, newAsyncDecoder); err != nil {
+				validationErrors[label] = err
+			}
+		}
+
+		if len(validationErrors) == 0 {
+			return nil
+		}
+		validationError := ErrorValidation
+		for k, v := range validationErrors {
+			errors.Join(validationError, fmt.Errorf("bundle artifact file '%s': %w", k, v))
+		}
+		return validationError
+	}
+
+	var validator AnyValidator
+
+	switch obj.(type) {
+	case *grype.ScanReport:
+		validator = grype.NewValidator()
+	case *semgrep.ScanReport:
+		validator = semgrep.NewValidator()
+	case *gitleaks.ScanReport:
+		validator = gitleaks.NewValidator()
+	case *cyclonedx.ScanReport:
+		validator = cyclonedx.NewValidator()
+	}
+
+	return validator.Validate(obj, bytes.NewReader(configFileBytes))
 }

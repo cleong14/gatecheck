@@ -7,12 +7,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path"
+	"strings"
 	"testing"
 	"time"
 
 	gosemgrep "github.com/BacchusJackson/go-semgrep"
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	"github.com/anchore/grype/grype/presenter/models"
+	"github.com/gatecheckdev/gatecheck/pkg/archive"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/cyclonedx"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/gitleaks"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/grype"
@@ -228,6 +230,20 @@ func TestValidateCmd(t *testing.T) {
 	configPassFilename := writeTempConfig(configPass, t)
 	configFailFilename := writeTempConfig(configFail, t)
 
+	bundle := archive.NewBundle()
+	_ = bundle.AddFrom(MustOpen(grypeFilename, t), grypeFilename, nil)
+	_ = bundle.AddFrom(MustOpen(semgrepFilename, t), semgrepFilename, nil)
+	_ = bundle.AddFrom(MustOpen(gitleaksFilename, t), gitleaksFilename, nil)
+	_ = bundle.AddFrom(MustOpen(cyclonedxFilename, t), cyclonedxFilename, nil)
+	_ = bundle.AddFrom(strings.NewReader("ABCDEF"), "file-1.txt", nil)
+
+	var tempBundleFileFunc = func(t *testing.T) string {
+		fPath := path.Join(t.TempDir(), archive.DefaultBundleFilename)
+		f := MustCreate(fPath, t)
+		_ = archive.NewBundleEncoder(f).Encode(bundle)
+		return fPath
+	}
+
 	testTable := []struct {
 		label      string
 		wantErr    error
@@ -245,6 +261,9 @@ func TestValidateCmd(t *testing.T) {
 
 		{label: "cyclonedx-pass", wantErr: nil, reportFunc: fileFunc(cyclonedxFilename), configFunc: fileFunc(configPassFilename)},
 		{label: "cyclonedx-fail", wantErr: ErrorValidation, reportFunc: fileFunc(cyclonedxFilename), configFunc: fileFunc(configFailFilename)},
+
+		{label: "bundle-pass", wantErr: nil, reportFunc: tempBundleFileFunc, configFunc: fileFunc(configPassFilename)},
+		{label: "bundle-fail", wantErr: ErrorValidation, reportFunc: tempBundleFileFunc, configFunc: fileFunc(configFailFilename)},
 
 		{label: "bad-object-file", wantErr: ErrorFileAccess, reportFunc: fileWithBadPermissions, configFunc: fileWithBadPermissions},
 		{label: "bad-config-file", wantErr: ErrorFileAccess, reportFunc: fileFunc(grypeTestReport), configFunc: fileWithBadPermissions},
@@ -274,6 +293,7 @@ func NewAsyncDecoder() AsyncDecoder {
 		semgrep.NewReportDecoder(),
 		gitleaks.NewReportDecoder(),
 		cyclonedx.NewReportDecoder(),
+		archive.NewBundleDecoder(),
 	)
 }
 

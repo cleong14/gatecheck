@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gatecheckdev/gatecheck/pkg/archive"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/cyclonedx"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/gitleaks"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/grype"
@@ -148,6 +149,7 @@ func AsyncDecoderFunc() AsyncDecoder {
 		semgrep.NewReportDecoder(),
 		gitleaks.NewReportDecoder(),
 		cyclonedx.NewReportDecoder(),
+		archive.NewBundleDecoder(),
 	)
 
 	return decoder

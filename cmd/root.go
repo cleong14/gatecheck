@@ -8,6 +8,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/gatecheckdev/gatecheck/pkg/artifacts/cyclonedx"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/gitleaks"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/grype"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/semgrep"
@@ -124,10 +125,11 @@ func NewConfigCmd() *cobra.Command {
 		Short: "prints a new configuration file.",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			configMap := map[string]any{
-				"version":  "1",
-				"grype":    grype.Config{},
-				"semgrep":  semgrep.Config{},
-				"gitleaks": gitleaks.Config{},
+				"version":                 "1",
+				grype.ConfigFieldName:     grype.Config{},
+				semgrep.ConfigFieldName:   semgrep.Config{},
+				gitleaks.ConfigFieldName:  gitleaks.Config{},
+				cyclonedx.ConfigFieldName: cyclonedx.Config{},
 			}
 			return yaml.NewEncoder(cmd.OutOrStdout()).Encode(configMap)
 		},

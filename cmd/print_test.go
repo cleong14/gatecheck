@@ -1,12 +1,15 @@
 package cmd
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
 	"path"
 	"strings"
 	"testing"
+
+	"github.com/gatecheckdev/gatecheck/pkg/archive"
 )
 
 func Test_PrintCommand(t *testing.T) {
@@ -103,4 +106,15 @@ func Test_PrintCommand(t *testing.T) {
 		}
 	})
 
+}
+
+func TestPrintBundle(t *testing.T) {
+	bundle := archive.NewBundle()
+	_ = bundle.AddFrom(MustOpen(grypeTestReport, t), "grype-report.json", nil)
+	_ = bundle.AddFrom(MustOpen(semgrepTestReport, t), "semgrep-report.json", nil)
+	_ = bundle.AddFrom(MustOpen(gitleaksTestReport, t), "gitleaks-report.json", nil)
+	_ = bundle.AddFrom(MustOpen(cyclonedxTestReport, t), "cyclonedx-report.json", nil)
+	buf := new(bytes.Buffer)
+	printArtifact(buf, bundle, AsyncDecoderFunc)
+	t.Log(buf.String())
 }
