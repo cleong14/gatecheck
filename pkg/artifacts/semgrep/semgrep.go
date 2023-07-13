@@ -2,6 +2,7 @@ package semgrep
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	semgrep "github.com/BacchusJackson/go-semgrep"
@@ -20,24 +21,26 @@ type ScanReport semgrep.SemgrepOutputV1Jsonschema
 
 func (r ScanReport) String() string {
 	table := format.NewTable()
-	table.AppendRow("Path", "Line", "Level", "link", "CWE Message")
+	table.AppendRow("Severity", "Path", "Line", "CWE Message", "Link")
 
 	for _, item := range r.Results {
 		line := fmt.Sprintf("%d", item.Start.Line)
+		path := format.Summarize(item.Path, 30, format.ClipMiddle)
 		// Attempt type assertion on metadata since it's an interface{}
 		metadata, ok := item.Extra.Metadata.(map[string]interface{})
 		if ok != true {
-			table.AppendRow(format.Summarize(item.Path, 30, format.ClipLeft), line, item.Extra.Severity, "", "")
+			table.AppendRow(item.Extra.Severity, path, line, "", "")
 			continue
 		}
 
 		link := fmt.Sprintf("%v", metadata["shortlink"])
 		cwe := fmt.Sprintf("%v", metadata["cwe"])
-		path := format.Summarize(item.Path, 30, format.ClipRight)
-		table.AppendRow(path, line, item.Extra.Severity, cwe, link)
+		table.AppendRow(item.Extra.Severity, path, line, cwe, link)
 	}
 
-	table.SetSort(2, format.NewCatagoricLess([]string{"ERROR", "WARNING", "INFO"}))
+	table.SetSort(0, format.NewCatagoricLess([]string{"ERROR", "WARNING", "INFO"}))
+
+	sort.Sort(table)
 
 	return format.NewTableWriter(table).String()
 }

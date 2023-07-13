@@ -24,6 +24,10 @@ type ScanReport cdx.BOM
 var orderedSeverities = []string{"Critical", "High", "Medium", "Low", "Info", "None", "Unknown"}
 
 func (r ScanReport) String() string {
+	if r.Components == nil {
+		return "No Components in Report"
+	}
+
 	var sb strings.Builder
 	bomTable := format.NewTable()
 	bomTable.AppendRow("Name", "Version", "Type", "Ref")
@@ -42,6 +46,7 @@ func (r ScanReport) String() string {
 	vulTable := format.NewTable()
 	vulTable.AppendRow("Severity", "Package", "Version", "Link")
 	severities := make(map[string]int)
+
 
 	for _, vul := range *r.Vulnerabilities {
 		severity := string(highestVulnerability(*vul.Ratings).Severity)
@@ -113,6 +118,12 @@ func (d *ReportDecoder) Decode() (any, error) {
 	}
 	if report.BOMFormat != "CycloneDX" {
 		return nil, fmt.Errorf("%w: %v", gce.ErrFailedCheck, "BOMFormat field is not CycloneDX")
+	}
+	if report.Vulnerabilities == nil {
+		report.Vulnerabilities = new([]cdx.Vulnerability)
+	}
+	if report.Components == nil {
+		report.Components = new([]cdx.Component)
 	}
 
 	return report, err
@@ -228,12 +239,6 @@ func (r *ScanReport) ShimComponentsAsVulnerabilities() *ScanReport {
 			Detail: "Gatecheck added to be reported as a component of the product.",
 		},
 		Affects: &[]cdx.Affects{},
-	}
-	if r.Vulnerabilities == nil {
-		r.Vulnerabilities = &[]cdx.Vulnerability{}
-	}
-	if r.Components == nil {
-		return r
 	}
 	for _, c := range *r.Components {
 		*nv.Affects = append(*nv.Affects, cdx.Affects{Ref: c.BOMRef})

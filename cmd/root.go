@@ -55,7 +55,6 @@ type CLIConfig struct {
 	Version             string
 	PipedInput          *os.File
 	Client              *http.Client
-	DefaultReport       string
 	EPSSService         EPSSService
 	DDExportService     DDExportService
 	DDEngagement        defectdojo.EngagementQuery
@@ -63,7 +62,6 @@ type CLIConfig struct {
 	AWSExportService    AWSExportService
 	AWSExportTimeout    time.Duration
 	NewAsyncDecoderFunc func() AsyncDecoder
-	NewValidatorFunc    func() AnyValidator
 	KEVDownloadURL      string
 }
 

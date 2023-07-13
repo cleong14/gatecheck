@@ -72,6 +72,30 @@ func TestEncoding(t *testing.T) {
 			t.Fatalf("want: %v got: %v", gce.ErrFailedCheck, err)
 		}
 	})
+	t.Run("missing-components", func(t *testing.T) {
+		r, _ := NewReportDecoder().DecodeFrom(MustOpen(CyclonedxGrypeReport, t))
+		report := r.(*ScanReport)
+		report.Components = nil
+		buf := new(bytes.Buffer)
+		_ = json.NewEncoder(buf).Encode(report)
+
+		r, err := NewReportDecoder().DecodeFrom(buf)
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("missing-vulnerabilities", func(t *testing.T) {
+		r, _ := NewReportDecoder().DecodeFrom(MustOpen(CyclonedxGrypeReport, t))
+		report := r.(*ScanReport)
+		report.Vulnerabilities = nil
+		buf := new(bytes.Buffer)
+		_ = json.NewEncoder(buf).Encode(report)
+
+		r, err := NewReportDecoder().DecodeFrom(buf)
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
 }
 
 func TestValidation(t *testing.T) {
@@ -174,20 +198,6 @@ func TestCyclonedxSbomShim(t *testing.T) {
 			t.Fatal("Missing components as vulnerabilities")
 		}
 	}
-
-	t.Run("no-components", func(t *testing.T) {
-		someReport := &ScanReport{}
-		someReport.ShimComponentsAsVulnerabilities()
-	})
-
-	t.Run("vulnerabilities-no-components", func(t *testing.T) {
-		someReport := &ScanReport{
-			Vulnerabilities: &[]cdx.Vulnerability{
-				{ID: "CVE-2023-1", Ratings: &[]cdx.VulnerabilityRating{{Severity: cdx.SeverityCritical}}, Affects: &[]cdx.Affects{{Ref: "CVE-2023-1-ref"}}},
-			},
-		}
-		someReport.ShimComponentsAsVulnerabilities()
-	})
 
 }
 

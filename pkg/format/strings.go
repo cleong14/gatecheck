@@ -10,10 +10,11 @@ type ClipDirection int
 const (
 	ClipLeft ClipDirection = iota
 	ClipRight
+	ClipMiddle
 )
 
 func Summarize(content string, length int, clip ClipDirection) string {
-	if len(content) < length {
+	if len(content) <= length {
 		return content
 	}
 
@@ -33,6 +34,14 @@ func Summarize(content string, length int, clip ClipDirection) string {
 	}
 	if clip == ClipRight {
 		out = out[:length-3] + "..."
+	}
+
+	if clip == ClipMiddle {
+		totalLength := len(out)
+		clipLength := length - 3
+
+		halfClipLength := clipLength / 2
+		out = out[:halfClipLength] + "..." + out[totalLength-halfClipLength:]
 	}
 
 	return out

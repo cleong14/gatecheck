@@ -31,9 +31,9 @@ func NewPrintCommand(pipedFile *os.File, newAsyncDecoder func() AsyncDecoder) *c
 				printArtifact(cmd.OutOrStdout(), v, newAsyncDecoder)
 			}
 
-			for _, v := range args {
-				log.Infof("Opening file: %s", v)
-				f, err := os.Open(v)
+			for _, filename := range args {
+				log.Infof("Opening file: %s", filename)
+				f, err := os.Open(filename)
 				if err != nil {
 					return fmt.Errorf("%w: %v", ErrorFileAccess, err)
 				}
@@ -50,6 +50,10 @@ func NewPrintCommand(pipedFile *os.File, newAsyncDecoder func() AsyncDecoder) *c
 
 func printArtifact(w io.Writer, v any, newDecoder func() AsyncDecoder) {
 	outputString := ""
+	if v == nil {
+		strings.NewReader("fail").WriteTo(w)
+		return
+	}
 	switch v.(type) {
 	case *grype.ScanReport:
 		outputString = v.(*grype.ScanReport).String()

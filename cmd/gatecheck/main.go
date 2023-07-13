@@ -63,16 +63,17 @@ func main() {
 	}
 
 	command := cmd.NewRootCommand(cmd.CLIConfig{
-		DDExportTimeout:  5 * time.Minute,
-		Client:           http.DefaultClient,
-		KEVDownloadURL:   "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json",
-		Version:          "0.0.10",
-		EPSSService:      epssService,
-		DDExportService:  &dojoService,
-		DDEngagement:     ddEngagement,
-		AWSExportService: awsService,
-		AWSExportTimeout: 5 * time.Minute,
-		PipedInput:       pipedFile,
+		Version:             "0.1.0",
+		PipedInput:          pipedFile,
+		Client:              http.DefaultClient,
+		EPSSService:         epssService,
+		DDExportService:     &dojoService,
+		DDExportTimeout:     5 * time.Minute,
+		DDEngagement:        ddEngagement,
+		AWSExportService:    awsService,
+		AWSExportTimeout:    5 * time.Minute,
+		NewAsyncDecoderFunc: AsyncDecoderFunc,
+		KEVDownloadURL:      "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json",
 	})
 
 	command.PersistentPreRun = func(_ *cobra.Command, _ []string) {

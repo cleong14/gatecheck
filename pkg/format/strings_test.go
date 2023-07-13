@@ -13,9 +13,10 @@ func TestSummarize(t *testing.T) {
 	}{
 		{content: "abcdefg", length: 5, clip: ClipRight, want: "ab..."},
 		{content: "abcdefg", length: 5, clip: ClipLeft, want: "...fg"},
+		{content: "abcdefg", length: 5, clip: ClipMiddle, want: "a...g"},
 		{content: "a", length: 5, clip: ClipLeft, want: "a"},
 		{content: "abc", length: 5, clip: ClipLeft, want: "abc"},
-		{content: "abcde", length: 5, clip: ClipLeft, want: "...de"},
+		{content: "abcde", length: 5, clip: ClipLeft, want: "abcde"},
 		{content: "abcde", length: 2, clip: ClipLeft, want: "ab"},
 		{content: "abcde", length: 2, clip: ClipRight, want: "de"},
 	}

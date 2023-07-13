@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
+	"strings"
 
 	"github.com/gatecheckdev/gatecheck/internal/log"
 	gce "github.com/gatecheckdev/gatecheck/pkg/encoding"
@@ -25,9 +27,13 @@ func (r ScanReport) String() string {
 	table := format.NewTable()
 	table.AppendRow("Rule", "File", "secret", "Commit")
 	for _, finding := range r {
-		secret := format.Summarize(finding.Secret, 50, format.ClipLeft)
+		secret := strings.ReplaceAll(finding.Secret, "\n", "\\n")
+		secret = strings.ReplaceAll(secret, "\r", "\\r")
+		secret = format.Summarize(secret, 50, format.ClipLeft)
 		table.AppendRow(finding.RuleID, finding.File, secret, finding.Commit)
 	}
+	table.SetSort(1, format.AlphabeticLess)
+	sort.Sort(table)
 	return format.NewTableWriter(table).String()
 }
 
