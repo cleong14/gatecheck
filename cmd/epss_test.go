@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"strings"
 	"testing"
 	"time"
 
@@ -137,12 +138,33 @@ func TestNewEPSSCmd(t *testing.T) {
 
 		output, err := Execute(commandString, CLIConfig{})
 
-		if !errors.Is(err, ErrorAPI) {
-			t.Fatalf("Expected not found error, got: %v", err)
+		if err != nil {
+			t.Fatalf("want: no error for missing EPSS score, got: %v", err)
 		}
 
 		t.Log(output)
 	})
+
+	t.Run("missing-epss-in-datastore", func(t *testing.T) {
+
+	})
+
+}
+
+func TestEPSSFromDataStore(t *testing.T) {
+
+	var sb strings.Builder
+
+	sb.WriteString("#model_version:v2023.03.01,score_date:2023-06-01T00:00:00+0000\n")
+	sb.WriteString("cve,epss,percentile\n")
+	sb.WriteString("A,0.10294,badvalue")
+
+	err := epssFromDataStore(strings.NewReader(sb.String()), []epss.CVE{{ID: "A"}})
+	t.Log(err)
+	if err == nil {
+		t.Fatalf("want: error got: nil")
+	}
+
 }
 
 func MockGrypeReport(t *testing.T, scan grype.ScanReport) string {

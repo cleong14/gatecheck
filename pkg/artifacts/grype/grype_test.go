@@ -43,6 +43,7 @@ func TestValidation_success(t *testing.T) {
 
 	encodedConfig := new(bytes.Buffer)
 	_ = yaml.NewEncoder(encodedConfig).Encode(configMap)
+	t.Log(encodedConfig.String())
 
 	err := NewValidator().ValidateFrom(grypeFile, encodedConfig)
 	if !errors.Is(err, gcv.ErrValidation) {
@@ -87,6 +88,22 @@ func TestValidateFunc(t *testing.T) {
 				t.Fatalf("want: %v got: %v", testCase.wantErr, err)
 			}
 		})
+	}
+}
+
+func TestScanReport_Remove(t *testing.T) {
+	report := ScanReport{}
+	report.Matches = []models.Match{
+		{Vulnerability: models.Vulnerability{VulnerabilityMetadata: models.VulnerabilityMetadata{ID: "cve-1", Severity: "Critical"}}},
+		{Vulnerability: models.Vulnerability{VulnerabilityMetadata: models.VulnerabilityMetadata{ID: "cve-2", Severity: "Critical"}}},
+		{Vulnerability: models.Vulnerability{VulnerabilityMetadata: models.VulnerabilityMetadata{ID: "cve-3", Severity: "Critical"}}},
+		{Vulnerability: models.Vulnerability{VulnerabilityMetadata: models.VulnerabilityMetadata{ID: "cve-4", Severity: "Critical"}}},
+		{Vulnerability: models.Vulnerability{VulnerabilityMetadata: models.VulnerabilityMetadata{ID: "cve-5", Severity: "Critical"}}},
+	}
+
+	report.RemoveMatches(ByIDs("cve-2", "cve-4"))
+	if len(report.Matches) != 3 {
+		t.Fatalf("want: match count 3 got: %d", len(report.Matches))
 	}
 }
 

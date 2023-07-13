@@ -19,11 +19,11 @@ import (
 )
 
 var (
-	ErrorFileAccess     = errors.New("file access")
-	ErrorEncoding       = errors.New("encoding")
-	ErrorValidation     = errors.New("validation")
-	ErrorAPI            = errors.New("request API")
-	ErrorUserInput      = errors.New("user error")
+	ErrorFileAccess     = errors.New("File Access Failure")
+	ErrorEncoding       = errors.New("Encoding Failure")
+	ErrorValidation     = errors.New("Validation Failure")
+	ErrorAPI            = errors.New("API Failure")
+	ErrorUserInput      = errors.New("User Input Failure")
 	GlobalVerboseOutput = false
 )
 
@@ -84,7 +84,7 @@ func NewRootCommand(config CLIConfig) *cobra.Command {
 	command.AddCommand(NewVersionCmd(config.Version))
 	command.AddCommand(NewPrintCommand(config.PipedInput, config.NewAsyncDecoderFunc))
 	command.AddCommand(NewConfigCmd())
-	command.AddCommand(NewValidateCmd(config.NewAsyncDecoderFunc, config.KEVDownloadURL, config.Client))
+	command.AddCommand(NewValidateCmd(config.NewAsyncDecoderFunc, config.KEVDownloadURL, config.Client, config.EPSSService))
 	command.AddCommand(NewEPSSCmd(config.EPSSService))
 	command.AddCommand(
 		NewExportCmd(
@@ -96,6 +96,7 @@ func NewRootCommand(config CLIConfig) *cobra.Command {
 			config.AWSExportTimeout,
 		),
 	)
+	command.AddCommand(NewBundleCmd(config.NewAsyncDecoderFunc))
 
 	return command
 }

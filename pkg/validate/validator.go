@@ -8,7 +8,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var ErrValidation = errors.New("validation error")
+var ErrValidation = errors.New("Violation")
 var ErrInput = errors.New("cannot validate, invalid object to be validatated")
 var ErrConfig = errors.New("cannot validate, invalid configuration")
 
@@ -33,16 +33,9 @@ func NewValidator[ObjectT any, ConfigT any](configFieldName string, objectDecode
 }
 
 func (v *Validator[ObjectT, ConfigT]) Validate(objPtr any, configReader io.Reader) error {
-	configMap := make(map[string]ConfigT)
-
-	if err := yaml.NewDecoder(configReader).Decode(configMap); err != nil {
-		return fmt.Errorf("%w: %v", ErrConfig, err)
-	}
-
-	c, ok := configMap[v.configFieldName]
-
-	if !ok {
-		return fmt.Errorf("%w: No configuration provided for field '%s'", ErrConfig, v.configFieldName)
+	c, err := ConfigByField[ConfigT](configReader, v.configFieldName)
+	if err != nil {
+		return err
 	}
 	o, ok := objPtr.(*ObjectT)
 	if !ok {
@@ -60,3 +53,17 @@ func (v *Validator[ObjectT, ConfigT]) ValidateFrom(objReader io.Reader, configRe
 	return v.Validate(o, configReader)
 }
 
+func ConfigByField[T any](configReader io.Reader, fieldname string) (T, error) {
+	configMap := make(map[string]T)
+	nilObj := *new(T)
+
+	if err := yaml.NewDecoder(configReader).Decode(configMap); err != nil {
+		return nilObj, fmt.Errorf("%w: %v", ErrConfig, err)
+	}
+
+	c, ok := configMap[fieldname]
+	if !ok {
+		return nilObj, fmt.Errorf("%w: No configuration provided for field '%s'", ErrConfig, fieldname)
+	}
+	return c, nil
+}

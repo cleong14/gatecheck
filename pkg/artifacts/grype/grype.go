@@ -32,16 +32,39 @@ func (r *ScanReport) String() string {
 	return format.NewTableWriter(table).String()
 }
 
+func (r *ScanReport) RemoveMatches(shouldRemove func(m models.Match) bool) {
+	newMatches := make([]models.Match, 0)
+	for _, match := range r.Matches {
+		if !shouldRemove(match) {
+			newMatches = append(newMatches, match)
+		}
+	}
+	r.Matches = newMatches
+}
+
+func ByIDs(ids ...string) func(m models.Match) bool {
+	return func(m models.Match) bool {
+		for _, removeID := range ids {
+			if m.Vulnerability.ID == removeID {
+				return true
+			}
+		}
+		return false
+	}
+}
+
 type Config struct {
-	AllowList  []ListItem `yaml:"allowList,omitempty" json:"allowList,omitempty"`
-	DenyList   []ListItem `yaml:"denyList,omitempty" json:"denyList,omitempty"`
-	Required   bool       `yaml:"required" json:"required"`
-	Critical   int        `yaml:"critical"   json:"critical"`
-	High       int        `yaml:"high"       json:"high"`
-	Medium     int        `yaml:"medium"     json:"medium"`
-	Low        int        `yaml:"low"        json:"low"`
-	Negligible int        `yaml:"negligible" json:"negligible"`
-	Unknown    int        `yaml:"unknown"    json:"unknown"`
+	AllowList          []ListItem `yaml:"allowList,omitempty" json:"allowList,omitempty"`
+	DenyList           []ListItem `yaml:"denyList,omitempty" json:"denyList,omitempty"`
+	EPSSAllowThreshold float64    `yaml:"epssAllowThreshold,omitempty" json:"epssAllowThreshold,omitempty"`
+	EPSSDenyThreshold  float64    `yaml:"epssDenyThreshold,omitempty" json:"epssDenyThreshold,omitempty"`
+	Required           bool       `yaml:"required" json:"required"`
+	Critical           int        `yaml:"critical"   json:"critical"`
+	High               int        `yaml:"high"       json:"high"`
+	Medium             int        `yaml:"medium"     json:"medium"`
+	Low                int        `yaml:"low"        json:"low"`
+	Negligible         int        `yaml:"negligible" json:"negligible"`
+	Unknown            int        `yaml:"unknown"    json:"unknown"`
 }
 
 type ListItem struct {

@@ -30,12 +30,13 @@ func (d *DataStore) WriteEPSS(cves []CVE) error {
 	for i := range cves {
 		scores, ok := d.data[cves[i].ID]
 		if !ok {
-			return fmt.Errorf("%w: '%s'", ErrNotFound, cves[i].ID)
+			log.Warnf("No score found for '%s'", cves[i].ID)
+			continue
 		}
 
 		prob, perc, err := parseScores(scores)
 		if err != nil {
-			return fmt.Errorf("%w: '%s'", ErrDecode, cves[i].ID)
+			return fmt.Errorf("%w: failed to parse '%s'", ErrDecode, cves[i].ID)
 		}
 		cves[i].ScoreDate = d.ScoreDate()
 		cves[i].Probability = prob

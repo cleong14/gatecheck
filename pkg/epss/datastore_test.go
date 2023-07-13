@@ -65,15 +65,15 @@ func TestCSVDecoder(t *testing.T) {
 	t.Run("bad-metadata", func(t *testing.T) {
 		badCSV := "cve,epss,percentile\n1,2,3"
 		if err := NewCSVDecoder(bytes.NewBufferString(badCSV)).Decode(&DataStore{}); !errors.Is(err, ErrDecode) {
-			t.Fatal(err, "Expected decode error for missing metadata")
+			t.Fatalf("want: %v got: %v", ErrDecode, err)
 		}
 		badCSV = "#model_version:v2025.03.01,score_date:2023-06-01T00:00:00+0000\n" + badCSV
 		if err := NewCSVDecoder(bytes.NewBufferString(badCSV)).Decode(&DataStore{}); !errors.Is(err, ErrDecode) {
-			t.Fatal(err, "Expected decode error for bad metadata model")
+			t.Fatalf("want: %v got: %v", ErrDecode, err)
 		}
 		badCSV = "#model_version:v2023.03.01,score_date:01Twaoeif00:00:00+0000\n" + badCSV
 		if err := NewCSVDecoder(bytes.NewBufferString(badCSV)).Decode(&DataStore{}); !errors.Is(err, ErrDecode) {
-			t.Fatal(err, "Expected decode error for bad metadata date")
+			t.Fatalf("want: %v got: %v", ErrDecode, err)
 		}
 
 	})
@@ -81,15 +81,16 @@ func TestCSVDecoder(t *testing.T) {
 	t.Run("bad-values", func(t *testing.T) {
 		store.data["bad-values"] = scores{Probability: "nil", Percentile: "0.0032"}
 
-		if err := store.WriteEPSS([]CVE{{ID: "non-existant"}}); errors.Is(err, ErrNotFound) != true {
-			t.Fatal(err, "Expected Not Found")
+		if err := store.WriteEPSS([]CVE{{ID: "non-existant"}}); err != nil {
+			t.Fatal(err)
 		}
+
 		if err := store.WriteEPSS([]CVE{{ID: "bad-values"}}); errors.Is(err, ErrDecode) != true {
-			t.Fatal(err, "Expected Decode Error")
+			t.Fatalf("want: %v got: %v", ErrDecode, err)
 		}
 		store.data["bad-values"] = scores{Probability: "0.0035", Percentile: "nil"}
 		if err := store.WriteEPSS([]CVE{{ID: "bad-values"}}); errors.Is(err, ErrDecode) != true {
-			t.Fatal(err, "Expected Decode Error")
+			t.Fatalf("want: %v got: %v", ErrDecode, err)
 		}
 	})
 
@@ -97,13 +98,13 @@ func TestCSVDecoder(t *testing.T) {
 		// Bad Header
 		badCSV := "#model_version:v2023.03.01,score_date:2023-06-01T00:00:00+0000\nce,ess,percle\n1,2,3,4,5"
 		if err := NewCSVDecoder(bytes.NewBufferString(badCSV)).Decode(&DataStore{}); !errors.Is(err, ErrDecode) {
-			t.Fatal(err, "Expected Decode error")
+			t.Fatalf("want: %v got: %v", ErrDecode, err)
 		}
 
 		// Invalid field count
 		badCSV = "#model_version:v2023.03.01,score_date:2023-06-01T00:00:00+0000\ncve,epss,percentile\n1,2,3,4,5"
 		if err := NewCSVDecoder(bytes.NewBufferString(badCSV)).Decode(&DataStore{}); !errors.Is(err, ErrDecode) {
-			t.Fatal(err, "Expected Decode error")
+			t.Fatalf("want: %v got: %v", ErrDecode, err)
 		}
 	})
 }
@@ -117,17 +118,10 @@ func TestDataStore_WriteEPSS(t *testing.T) {
 		if err := store.WriteEPSS(input); err != nil {
 			t.Fatal(err)
 		}
-		if !almostEqual(input[0].Percentile, 0.11184) && !almostEqual(input[0].Probability, 0.03234){
+		if !almostEqual(input[0].Percentile, 0.11184) && !almostEqual(input[0].Probability, 0.03234) {
 			t.Fail()
 		}
 	})
-
-	t.Run("not-found", func(t *testing.T) {
-		if err := store.WriteEPSS([]CVE{{ID: "None"}}); !errors.Is(err, ErrNotFound) {
-			t.Fatal(err, "Expected Not Found Error")
-		}
-	})
-
 }
 
 func MustOpen(filename string, t *testing.T) *os.File {

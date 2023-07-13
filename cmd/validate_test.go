@@ -20,6 +20,7 @@ import (
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/grype"
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/semgrep"
 	gce "github.com/gatecheckdev/gatecheck/pkg/encoding"
+	"github.com/gatecheckdev/gatecheck/pkg/epss"
 	"github.com/gatecheckdev/gatecheck/pkg/kev"
 	"gopkg.in/yaml.v3"
 )
@@ -32,18 +33,19 @@ func TestKEVValidation(t *testing.T) {
 		VulnerabilityMetadata: models.VulnerabilityMetadata{ID: "abc-123", Severity: "Critical"},
 	}})
 
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		catalog := &kev.Catalog{Title: "Mock Catalog", CatalogVersion: "Mock Version", DateReleased: time.Now(), Count: 1,
+			Vulnerabilities: []kev.Vulnerability{{CveID: "abc-123"}}}
+		_ = json.NewEncoder(w).Encode(catalog)
+	}))
+	CLIConfigWithMockServer := CLIConfig{NewAsyncDecoderFunc: NewAsyncDecoder, Client: mockServer.Client(), KEVDownloadURL: mockServer.URL}
+
 	t.Run("success-pass-download", func(t *testing.T) {
 		reportFilename := writeTempAny(&grypeReport, t)
 		configFilename := writeTempConfig(map[string]any{"grype": grype.Config{Critical: 0, High: -1, Medium: -1, Low: -1, Unknown: -1}}, t)
 
-		mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			catalog := &kev.Catalog{Title: "Mock Catalog", CatalogVersion: "Mock Version", DateReleased: time.Now(), Count: 1,
-				Vulnerabilities: []kev.Vulnerability{{CveID: "abc-123"}}}
-			_ = json.NewEncoder(w).Encode(catalog)
-		}))
-
 		commandString := fmt.Sprintf("validate --fetch-kev -c %s %s", configFilename, reportFilename)
-		output, err := Execute(commandString, CLIConfig{NewAsyncDecoderFunc: NewAsyncDecoder, Client: mockServer.Client(), KEVDownloadURL: mockServer.URL})
+		output, err := Execute(commandString, CLIConfigWithMockServer)
 		t.Log(output)
 
 		if !errors.Is(err, ErrorValidation) {
@@ -120,7 +122,7 @@ func TestKEVValidation(t *testing.T) {
 
 		commandString := fmt.Sprintf("validate --fetch-kev -c %s %s", configFilename, semgrepFilename)
 
-		_, err := Execute(commandString, CLIConfig{NewAsyncDecoderFunc: NewAsyncDecoder})
+		_, err := Execute(commandString, CLIConfigWithMockServer)
 
 		if err != nil {
 			t.Fatalf("want %v got %v", nil, err)
@@ -145,6 +147,117 @@ func TestKEVValidation(t *testing.T) {
 		if !errors.Is(err, ErrorEncoding) {
 			t.Fatalf("want %v got %v", ErrorEncoding, err)
 		}
+	})
+}
+
+func TestEPSSValidation(t *testing.T) {
+
+	grypeReport := grype.ScanReport{}
+	grypeReport.Descriptor.Name = "grype"
+	grypeReport.Matches = append(grypeReport.Matches, models.Match{Vulnerability: models.Vulnerability{
+		VulnerabilityMetadata: models.VulnerabilityMetadata{ID: "cve-1", Severity: "Critical"},
+	}})
+
+	kevFilename := writeTempAny(&kev.Catalog{Title: "Mock Catalog", CatalogVersion: "Mock Version", DateReleased: time.Now(),
+		Count: 1, Vulnerabilities: []kev.Vulnerability{{CveID: "def-345"}}}, t)
+
+	cliConfig := CLIConfig{NewAsyncDecoderFunc: NewAsyncDecoder}
+	cliConfig.EPSSService = mockEPSSService{
+		returnError: nil,
+		returnN:     0,
+		modFunc: func(c []epss.CVE) {
+			for i, cve := range c {
+				if cve.ID == "cve-1" {
+					c[i].Probability = .2
+				}
+			}
+		},
+	}
+
+	t.Run("success-pass", func(t *testing.T) {
+		// A report with a critical vulnerability with an EPSS score of .2, the config file
+		// allows for vulnerabilities with EPSS scores under .5, should not cause a validation error
+		reportFilename := writeTempAny(&grypeReport, t)
+		configFilename := writeTempConfig(map[string]any{"grype": grype.Config{Critical: 0, High: -1, Medium: -1, Low: -1, Unknown: -1, EPSSAllowThreshold: 0.5}}, t)
+
+		commandString := fmt.Sprintf("validate -k %s --fetch-epss -c %s %s", kevFilename, configFilename, reportFilename)
+		_, err := Execute(commandString, cliConfig)
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		var sb strings.Builder
+
+		sb.WriteString("#model_version:v2023.03.01,score_date:2023-06-01T00:00:00+0000\n")
+		sb.WriteString("cve,epss,percentile\n")
+		sb.WriteString("A,0.10294,0.20294")
+		epssFilename := path.Join(t.TempDir(), "epss.csv")
+		_, _ = strings.NewReader(sb.String()).WriteTo(MustCreate(epssFilename, t))
+
+		commandString = fmt.Sprintf("validate -k %s -e %s -c %s %s", kevFilename, epssFilename, configFilename, reportFilename)
+		_, err = Execute(commandString, cliConfig)
+
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("success-fail", func(t *testing.T) {
+		reportFilename := writeTempAny(&grypeReport, t)
+		configFilename := writeTempConfig(map[string]any{"grype": grype.Config{Critical: 0, High: -1, Medium: -1, Low: -1, Unknown: -1, EPSSDenyThreshold: 0.1}}, t)
+
+		commandString := fmt.Sprintf("validate -k %s --fetch-epss -c %s %s", kevFilename, configFilename, reportFilename)
+		_, err := Execute(commandString, cliConfig)
+
+		t.Log(err)
+		if !errors.Is(err, ErrorValidation) {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("bad-api", func(t *testing.T) {
+		cliConfig := CLIConfig{NewAsyncDecoderFunc: NewAsyncDecoder, EPSSService: newMockEPSSService(errors.New("Mock API fail"), 0)}
+		reportFilename := writeTempAny(&grypeReport, t)
+		configFilename := writeTempConfig(map[string]any{"grype": grype.Config{Critical: 0, High: -1, Medium: -1, Low: -1, Unknown: -1, EPSSDenyThreshold: 0.1}}, t)
+
+		commandString := fmt.Sprintf("validate -k %s --fetch-epss -c %s %s", kevFilename, configFilename, reportFilename)
+		_, err := Execute(commandString, cliConfig)
+
+		t.Log(err)
+		if !errors.Is(err, ErrorAPI) {
+			t.Fatalf("want: %v got: %v", ErrorAPI, err)
+		}
+	})
+
+	t.Run("bad-file-access", func(t *testing.T) {
+		cliConfig := CLIConfig{NewAsyncDecoderFunc: NewAsyncDecoder, EPSSService: newMockEPSSService(errors.New("Mock API fail"), 0)}
+		reportFilename := writeTempAny(&grypeReport, t)
+		configFilename := writeTempConfig(map[string]any{"grype": grype.Config{Critical: 0, High: -1, Medium: -1, Low: -1, Unknown: -1, EPSSDenyThreshold: 0.1}}, t)
+
+		commandString := fmt.Sprintf("validate -k %s -e %s -c %s %s", kevFilename, fileWithBadPermissions(t), configFilename, reportFilename)
+		_, err := Execute(commandString, cliConfig)
+
+		t.Log(err)
+		if !errors.Is(err, ErrorFileAccess) {
+			t.Fatalf("want: %v got: %v", ErrorAPI, err)
+		}
+
+	})
+
+	t.Run("bad-file-encoding", func(t *testing.T) {
+		cliConfig := CLIConfig{NewAsyncDecoderFunc: NewAsyncDecoder, EPSSService: newMockEPSSService(errors.New("Mock API fail"), 0)}
+		reportFilename := writeTempAny(&grypeReport, t)
+		configFilename := writeTempConfig(map[string]any{"grype": grype.Config{Critical: 0, High: -1, Medium: -1, Low: -1, Unknown: -1, EPSSDenyThreshold: 0.1}}, t)
+
+		commandString := fmt.Sprintf("validate -k %s -e %s -c %s %s", kevFilename, fileWithBadJSON(t), configFilename, reportFilename)
+		_, err := Execute(commandString, cliConfig)
+
+		t.Log(err)
+		if !errors.Is(err, ErrorEncoding) {
+			t.Fatalf("want: %v got: %v", ErrorAPI, err)
+		}
+
 	})
 
 }

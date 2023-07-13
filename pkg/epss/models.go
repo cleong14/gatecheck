@@ -26,5 +26,4 @@ const modelDateLayout = "2006-01-02T15:04:05-0700"
 
 var ErrDecode = errors.New("Decoding Error")
 var ErrEncode = errors.New("Encoding failed")
-var ErrNotFound = errors.New("CVE not found in Data Store")
 var ErrAPIPartialFail = errors.New("an API request failed")

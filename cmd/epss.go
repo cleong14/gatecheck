@@ -64,15 +64,7 @@ func NewEPSSCmd(service EPSSService) *cobra.Command {
 
 			grypeScan := r.(*grype.ScanReport)
 
-			cves := make([]epss.CVE, len(grypeScan.Matches))
-
-			for i, match := range grypeScan.Matches {
-				cves[i] = epss.CVE{
-					ID:       match.Vulnerability.ID,
-					Severity: match.Vulnerability.Severity,
-					Link:     match.Vulnerability.DataSource,
-				}
-			}
+			cves := cvesFromGrypeReport(grypeScan)
 
 			if csvFile != nil {
 				err = epssFromDataStore(csvFile, cves)
@@ -97,6 +89,20 @@ func NewEPSSCmd(service EPSSService) *cobra.Command {
 	return EPSSCmd
 }
 
+func cvesFromGrypeReport(report *grype.ScanReport) []epss.CVE {
+
+	cves := make([]epss.CVE, len(report.Matches))
+
+	for i, match := range report.Matches {
+		cves[i] = epss.CVE{
+			ID:       match.Vulnerability.ID,
+			Severity: match.Vulnerability.Severity,
+			Link:     match.Vulnerability.DataSource,
+		}
+	}
+	return cves
+}
+
 func epssFromAPI(service EPSSService, CVEs []epss.CVE) error {
 
 	err := service.WriteEPSS(CVEs)
@@ -110,12 +116,12 @@ func epssFromAPI(service EPSSService, CVEs []epss.CVE) error {
 func epssFromDataStore(epssCSV io.Reader, CVEs []epss.CVE) error {
 	store := epss.NewDataStore()
 	if err := epss.NewCSVDecoder(epssCSV).Decode(store); err != nil {
-		return err
+		return fmt.Errorf("%w: decoding EPSS CSV", err)
 	}
 	log.Infof("EPSS CSV Datastore imported scores for %d CVEs\n", store.Len())
 
 	if err := store.WriteEPSS(CVEs); err != nil {
-		return err
+		return fmt.Errorf("%w: Writing EPSS scores from Data Store", err)
 
 	}
 
