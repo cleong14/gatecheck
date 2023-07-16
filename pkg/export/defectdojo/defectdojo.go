@@ -38,14 +38,15 @@ const (
 const contentTypeJSON = "application/json"
 
 type EngagementQuery struct {
-	ProductTypeName string
-	ProductName     string
-	Name            string
-	Duration        time.Duration
-	BranchTag       string
-	SourceURL       string
-	CommitHash      string
-	Tags            []string
+	ProductTypeName           string
+	ProductName               string
+	Name                      string
+	Duration                  time.Duration
+	BranchTag                 string
+	SourceURL                 string
+	CommitHash                string
+	DeduplicationOnEngagement bool
+	Tags                      []string
 }
 
 // Service can be used to export scans to Defect Dojo
@@ -217,7 +218,8 @@ func (s Service) engagement(e EngagementQuery, prod product) (engagement, error)
 		TargetEnd:   time.Now().In(loc).Add(e.Duration).Format("2006-01-02"),
 		Product:     prod.Id, Active: true, Status: "In Progress", EngagementType: "CI/CD", CommitHash: e.CommitHash,
 		BranchTag: e.BranchTag, SourceCodeManagementUri: e.SourceURL,
-		Tags: e.Tags,
+		DeduplicationOnEngagement: e.DeduplicationOnEngagement,
+		Tags:                      e.Tags,
 	}
 	_ = json.NewEncoder(buf).Encode(newEngagement)
 
