@@ -36,6 +36,7 @@ func main() {
 	dojoURL := os.Getenv("GATECHECK_DD_API_URL")
 
 	deduplicationOnEngagement, _ := strconv.ParseBool(os.Getenv("GATECHECK_DD_DEDUPLICATION_ON_ENGAGEMENT"))
+	enableSimpleRiskAcceptance, _ := strconv.ParseBool(os.Getenv("GATECHECK_DD_ENABLE_SIMPLE_RISK_ACCEPTANCE"))
 
 	ddEngagement := defectdojo.EngagementQuery{
 		ProductTypeName:            os.Getenv("GATECHECK_DD_PRODUCT_TYPE"),
@@ -46,6 +47,7 @@ func main() {
 		SourceURL:                  os.Getenv("GATECHECK_DD_SOURCE_URL"),
 		CommitHash:                 os.Getenv("GATECHECK_DD_COMMIT_HASH"),
 		DeduplicationOnEngagement:  deduplicationOnEngagement,
+		EnableSimpleRiskAcceptance: enableSimpleRiskAcceptance,
 		Tags:                       strings.Split(os.Getenv("GATECHECK_DD_TAGS"), ","),
 	}
 

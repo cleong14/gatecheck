@@ -46,6 +46,7 @@ type EngagementQuery struct {
 	SourceURL                  string
 	CommitHash                 string
 	DeduplicationOnEngagement  bool
+	EnableSimpleRiskAcceptance bool
 	Tags                       []string
 }
 
@@ -175,9 +176,12 @@ func (s Service) product(e EngagementQuery, prodType productType) (product, erro
 	}
 
 	buf := new(bytes.Buffer)
-	_ = json.NewEncoder(buf).Encode(product{Name: e.ProductName,
-		Description: s.description(),
-		ProdType:    prodType.Id})
+	_ = json.NewEncoder(buf).Encode(product{
+		Name:                       e.ProductName,
+		Description:                s.description(),
+		ProdType:                   prodType.Id,
+		EnableSimpleRiskAcceptance: e.EnableSimpleRiskAcceptance,
+	})
 
 	resBody, err := s.postJSON(url, buf)
 	if err != nil {
