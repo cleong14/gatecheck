@@ -35,18 +35,18 @@ func main() {
 	dojoKey := os.Getenv("GATECHECK_DD_API_KEY")
 	dojoURL := os.Getenv("GATECHECK_DD_API_URL")
 
-	dedupeOnEngagementBool, _ := strconv.ParseBool(os.Getenv("GATECHECK_DD_DEDUPLICATION_ON_ENGAGEMENT"))
+	deduplicationOnEngagement, _ := strconv.ParseBool(os.Getenv("GATECHECK_DD_DEDUPLICATION_ON_ENGAGEMENT"))
 
 	ddEngagement := defectdojo.EngagementQuery{
-		ProductTypeName:           os.Getenv("GATECHECK_DD_PRODUCT_TYPE"),
-		ProductName:               os.Getenv("GATECHECK_DD_PRODUCT"),
-		Name:                      os.Getenv("GATECHECK_DD_ENGAGEMENT"),
-		Duration:                  time.Hour * 48,
-		BranchTag:                 os.Getenv("GATECHECK_DD_BRANCH_TAG"),
-		SourceURL:                 os.Getenv("GATECHECK_DD_SOURCE_URL"),
-		CommitHash:                os.Getenv("GATECHECK_DD_COMMIT_HASH"),
-		DeduplicationOnEngagement: dedupeOnEngagementBool,
-		Tags:                      strings.Split(os.Getenv("GATECHECK_DD_TAGS"), ","),
+		ProductTypeName:            os.Getenv("GATECHECK_DD_PRODUCT_TYPE"),
+		ProductName:                os.Getenv("GATECHECK_DD_PRODUCT"),
+		Name:                       os.Getenv("GATECHECK_DD_ENGAGEMENT"),
+		Duration:                   time.Hour * 48,
+		BranchTag:                  os.Getenv("GATECHECK_DD_BRANCH_TAG"),
+		SourceURL:                  os.Getenv("GATECHECK_DD_SOURCE_URL"),
+		CommitHash:                 os.Getenv("GATECHECK_DD_COMMIT_HASH"),
+		DeduplicationOnEngagement:  deduplicationOnEngagement,
+		Tags:                       strings.Split(os.Getenv("GATECHECK_DD_TAGS"), ","),
 	}
 
 	dojoService := defectdojo.NewService(http.DefaultClient, dojoKey, dojoURL)

@@ -38,15 +38,15 @@ const (
 const contentTypeJSON = "application/json"
 
 type EngagementQuery struct {
-	ProductTypeName           string
-	ProductName               string
-	Name                      string
-	Duration                  time.Duration
-	BranchTag                 string
-	SourceURL                 string
-	CommitHash                string
-	DeduplicationOnEngagement bool
-	Tags                      []string
+	ProductTypeName            string
+	ProductName                string
+	Name                       string
+	Duration                   time.Duration
+	BranchTag                  string
+	SourceURL                  string
+	CommitHash                 string
+	DeduplicationOnEngagement  bool
+	Tags                       []string
 }
 
 // Service can be used to export scans to Defect Dojo
