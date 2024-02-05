@@ -142,16 +142,18 @@ func main() {
 
 	slog.SetDefault(slog.New(tint.NewHandler(command.ErrOrStderr(), &tint.Options{Level: slog.LevelWarn, TimeFormat: time.TimeOnly})))
 	command.PersistentFlags().BoolP("verbose", "v", false, "verbose output")
+	command.PersistentFlags().BoolP("quiet", "q", false, "quiet output")
 
 	var startTime time.Time
 	command.PersistentPreRun = func(cm *cobra.Command, _ []string) {
 		startTime = time.Now()
-		verbose, err := command.PersistentFlags().GetBool("verbose")
-		if err != nil {
-			panic(err)
-		}
+		verbose, _ := command.PersistentFlags().GetBool("verbose")
+		quiet, _ := command.PersistentFlags().GetBool("quiet")
 		if verbose {
 			slog.SetDefault(slog.New(tint.NewHandler(command.ErrOrStderr(), &tint.Options{Level: slog.LevelDebug, TimeFormat: time.TimeOnly})))
+		}
+		if quiet {
+			slog.SetDefault(slog.New(tint.NewHandler(command.ErrOrStderr(), &tint.Options{Level: slog.LevelError, TimeFormat: time.TimeOnly})))
 		}
 	}
 

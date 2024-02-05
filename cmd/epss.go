@@ -1,15 +1,19 @@
 package cmd
 
 import (
+	"encoding/csv"
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"sort"
+	"strconv"
+
+	"github.com/spf13/cobra"
 
 	"github.com/gatecheckdev/gatecheck/pkg/artifacts/grype"
 	"github.com/gatecheckdev/gatecheck/pkg/epss"
 	"github.com/gatecheckdev/gatecheck/pkg/format"
-	"github.com/spf13/cobra"
 )
 
 func newEPSSCmd(EPSSDownloadAgent io.Reader) *cobra.Command {
@@ -39,6 +43,7 @@ func newEPSSCmd(EPSSDownloadAgent io.Reader) *cobra.Command {
 
 			csvFilename, _ := cmd.Flags().GetString("epss-file")
 			fetchFlag, _ := cmd.Flags().GetBool("fetch")
+			outputFormat, _ := cmd.Flags().GetString("format")
 
 			if fetchFlag {
 				service = epss.NewService(EPSSDownloadAgent)
@@ -68,8 +73,37 @@ func newEPSSCmd(EPSSDownloadAgent io.Reader) *cobra.Command {
 				return err
 			}
 
-			_, err = format.NewTableWriter(epssTable(cves)).WriteTo(cmd.OutOrStderr())
-			return err
+			switch outputFormat {
+			case "csv":
+				// Create a CSV writer
+				writer := csv.NewWriter(os.Stdout)
+				defer writer.Flush()
+
+				// Write header
+				// {CVE-2023-32313 Medium https://nvd.nist.gov/vuln/detail/CVE-2023-32313 2024-02-04 00:00:00 +0000 +0000 0.00052 0.17625}
+				header := []string{"CVE", "Severity", "EPSS Score", "Percentile", "Link"}
+				if err := writer.Write(header); err != nil {
+					panic(err)
+				}
+
+				// Write each EPSS score record
+				for _, cve := range cves {
+					row := []string{
+						cve.ID,
+						cve.Severity,
+						strconv.FormatFloat(cve.Probability, 'f', -1, 64),
+						strconv.FormatFloat(cve.Percentile, 'f', -1, 64),
+						cve.Link,
+					}
+					if err := writer.Write(row); err != nil {
+						panic(err)
+					}
+				}
+				return nil
+			default:
+				_, err = format.NewTableWriter(epssTable(cves)).WriteTo(cmd.OutOrStderr())
+				return err
+			}
 		},
 	}
 
@@ -77,6 +111,7 @@ func newEPSSCmd(EPSSDownloadAgent io.Reader) *cobra.Command {
 
 	EPSSCmd.Flags().StringP("epss-file", "e", "", "A downloaded CSV File with scores, note: will not query API")
 	EPSSCmd.Flags().Bool("fetch", false, "Fetch EPSS scores from API")
+	EPSSCmd.Flags().StringP("format", "f", "", "Output format (default: table)")
 	EPSSCmd.MarkFlagsMutuallyExclusive("epss-file", "fetch")
 
 	return EPSSCmd

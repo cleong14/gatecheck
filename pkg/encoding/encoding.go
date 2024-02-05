@@ -2,6 +2,7 @@ package encoding
 
 import (
 	"bytes"
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -94,5 +95,44 @@ func (d *YAMLWriterDecoder[T]) DecodeFrom(r io.Reader) (any, error) {
 
 // FileType plain text provided file type after decoding
 func (d *YAMLWriterDecoder[T]) FileType() string {
+	return d.fileType
+}
+
+// CSVWriterDecoder see JSONWriterDecoder or YAMLWriterDecoder, this implementation is the same but for CSV
+type CSVWriterDecoder[T any] struct {
+	bytes.Buffer
+	checkFunc func(*T) error
+	fileType  string
+}
+
+// NewCSVWriterDecoder use to create a csv decoder
+func NewCSVWriterDecoder[T any](fileType string, check func(*T) error) *CSVWriterDecoder[T] {
+	return &CSVWriterDecoder[T]{
+		checkFunc: check,
+		fileType:  fileType,
+	}
+}
+
+// Decode run the decoding and check function
+func (d *CSVWriterDecoder[T]) Decode() (any, error) {
+	obj := new(T)
+	_, err := csv.NewReader(d).ReadAll()
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrEncoding, err)
+	}
+	return obj, d.checkFunc(obj)
+}
+
+// DecodeFrom see Decode
+func (d *CSVWriterDecoder[T]) DecodeFrom(r io.Reader) (any, error) {
+	_, err := d.ReadFrom(r)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrIO, err)
+	}
+	return d.Decode()
+}
+
+// FileType plain text provided file type after decoding
+func (d *CSVWriterDecoder[T]) FileType() string {
 	return d.fileType
 }

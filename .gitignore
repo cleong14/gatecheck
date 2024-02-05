@@ -1,3 +1,8 @@
 bin/
 dist/
 cover.cov
+.air*
+.envrc
+coverage.*
+*.http
+gatecheck.yaml
