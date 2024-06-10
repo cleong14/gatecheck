@@ -93,6 +93,10 @@ func List(dst io.Writer, src io.Reader, inputFilename string, options ...ListOpt
 		_, err := fmt.Fprintln(dst, bundle.Content())
 		return err
 
+	case strings.Contains(inputFilename, "sarif"):
+		slog.Debug("list", "filename", inputFilename, "filetype", "sarif")
+		table, err = ListSarif(dst, src)
+
 	default:
 		slog.Error("unsupported file type, cannot be determined from filename", "filename", inputFilename)
 		return errors.New("Failed to list artifact content")
@@ -316,6 +320,39 @@ func listGitleaks(dst io.Writer, src io.Reader) (*tablewriter.Table, error) {
 	if report.Count() == 0 {
 		table.SetFooter([]string{"No Gitleaks Findings"})
 	}
+
+	return table, nil
+}
+
+func ListSarif(dst io.Writer, src io.Reader) (*tablewriter.Table, error) {
+	report := &artifacts.SarifReportMin{}
+	slog.Debug("decode sarif report", "format", "json")
+	if err := json.NewDecoder(src).Decode(&report); err != nil {
+		return nil, err
+	}
+
+	catLess := format.NewCatagoricLess([]string{"none", "note", "warning", "error"})
+	matrix := format.NewSortableMatrix(make([][]string, 0), 1, catLess)
+
+	if len(report.Runs) == 0 {
+		return nil, nil
+	}
+
+	if len(report.Runs) == 1 {
+		for _, result := range report.Runs[0].Results {
+			ruleid := result.RuleId
+			level := result.Level
+			message := result.Message.Text
+
+			// get the reported results
+			matrix.Append([]string{ruleid, level, message})
+		}
+	}
+
+	sort.Sort(matrix)
+
+	header := []string{"Sarif Rule ID", "Level", "Message"}
+	table := matrix.Table(dst, header)
 
 	return table, nil
 }

@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var supportedTypes = []string{"grype", "semgrep", "gitleaks", "syft", "cyclonedx", "bundle", "gatecheck"}
+var supportedTypes = []string{"grype", "semgrep", "gitleaks", "syft", "cyclonedx", "bundle", "gatecheck", "sarif"}
 
 var listCmd = &cobra.Command{
 	Use:     "list",
@@ -155,7 +155,7 @@ func newListAllCommand() *cobra.Command {
 }
 
 func newListCommand() *cobra.Command {
-	listCmd.Flags().StringP("input-type", "i", "", "the input filetype if using STDIN [grype|semgrep|gitleaks|syft|bundle]")
+	listCmd.Flags().StringP("input-type", "i", "", "the input filetype if using STDIN [grype|semgrep|gitleaks|syft|bundle|sarif]")
 	listCmd.Flags().Bool("markdown", false, "print as a markdown table")
 	listCmd.Flags().Bool("epss", false, "List with EPSS data")
 	RuntimeConfig.EPSSURL.SetupCobra(listCmd)
